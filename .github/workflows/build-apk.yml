@@ -23,28 +23,37 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Build Web App
+      - name: Build Web Application
         run: npm run build
 
-      - name: Set up Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Add Android Platform & Sync
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+          printf "89330d22894a7306e3108d87081310102c798a6d\n24333f8a637173a1e163326986f472b01c53a61f\na52a2210f70b2619b08763c7f121b830951465fc" > "$ANDROID_HOME/licenses/android-sdk-license"
+          printf "84831b9402116da56f5c4041098a3f6477962324" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          printf "d971562888440314bdd8d7a0600553010f24a466" > "$ANDROID_HOME/licenses/intel-android-sysimage-license"
+          printf "e9e87557fc978385d290a6184a475510f2142273" > "$ANDROID_HOME/licenses/mips-android-sysimage-license"
+          printf "33b622e7462411edd6f29511a092825734520300" > "$ANDROID_HOME/licenses/google-gdk-license"
+          printf "601007b946f40b99be237bc8028f4e35b27206c4" > "$ANDROID_HOME/licenses/android-googletv-license"
+
+      - name: Sync Capacitor Android
         run: |
           if [ ! -d "android" ]; then
             npx cap add android
           fi
           npx cap sync android
 
-      - name: Accept Licenses & Build APK
+      - name: Build Android APK with Gradle
         run: |
           cd android
           chmod +x gradlew
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
