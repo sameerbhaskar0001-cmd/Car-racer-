@@ -1,0 +1,6 @@
+{
+  "appId": "com.deskracer.app",
+  "appName": "Desk Racer 3D",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
