@@ -26,20 +26,23 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install Dependencies
+      - name: Setup Gradle Build Environment
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Install Node Dependencies
         run: npm install
 
       - name: Build Web Application
         run: npm run build
 
-      - name: Sync Capacitor
+      - name: Sync Capacitor Android
         run: |
           if [ ! -d "android" ]; then
             npx cap add android
           fi
           npx cap sync android
 
-      - name: Build Android APK
+      - name: Build Android APK with Gradle
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
