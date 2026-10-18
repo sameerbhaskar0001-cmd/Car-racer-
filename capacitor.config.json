@@ -2,5 +2,12 @@
   "appId": "com.deskracer.app",
   "appName": "Desk Racer 3D",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true
+  }
 }
