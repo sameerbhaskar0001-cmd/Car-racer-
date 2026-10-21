@@ -44,6 +44,9 @@ jobs:
           fi
           npx cap sync android
 
+      - name: Ensure Gradle 8.4 Wrapper
+        run: sed -i 's/gradle-.*-all.zip/gradle-8.4-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties || true
+
       - name: Build Debug APK via Gradle
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
