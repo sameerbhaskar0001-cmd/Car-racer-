@@ -47,6 +47,15 @@ jobs:
       - name: Ensure Gradle 8.4 Wrapper
         run: sed -i 's/gradle-.*-all.zip/gradle-8.4-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties || true
 
+      - name: Boost Gradle Memory & Clean
+        working-directory: android
+        run: |
+          echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8" >> gradle.properties
+          echo "org.gradle.daemon=false" >> gradle.properties
+          echo "org.gradle.parallel=true" >> gradle.properties
+          chmod +x gradlew
+          ./gradlew clean
+
       - name: Build Debug APK via Gradle
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
