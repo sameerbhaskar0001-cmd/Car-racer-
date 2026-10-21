@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
 import {
   BODY_KITS,
   BodyKitId,
@@ -229,6 +230,51 @@ export default function App() {
       if (unsubscribeFinish) unsubscribeFinish();
     };
   }, [getEngine]);
+
+  // Integrate @capacitor/app Hardware Back Button Listener on Android + Escape key
+  useEffect(() => {
+    let listenerPromise: ReturnType<typeof CapacitorApp.addListener> | null = null;
+
+    const handleBackAction = () => {
+      if (settingsOpen) {
+        setSettingsOpen(false);
+        return;
+      }
+      if (gameState === 'GARAGE' || gameState === 'RACE' || gameState === 'GAMEOVER') {
+        const engine = getEngine();
+        if (engine) {
+          engine.clearTouchControls();
+          engine.setBodyKit(equippedKit.id, equippedKit.physics, {
+            rimId: equippedRimId,
+            spoilerId: equippedSpoilerId,
+          });
+        }
+        setGameState('MENU');
+      }
+    };
+
+    try {
+      listenerPromise = CapacitorApp.addListener('backButton', () => {
+        handleBackAction();
+      });
+    } catch {
+      // Fallback for web browser environment
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Escape') {
+        handleBackAction();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (listenerPromise) {
+        listenerPromise.then((handle) => handle.remove()).catch(() => {});
+      }
+    };
+  }, [settingsOpen, gameState, equippedKit, equippedRimId, equippedSpoilerId, getEngine]);
 
   // Prevent browser pull-to-refresh or gesture scrolling during gameplay
   useEffect(() => {

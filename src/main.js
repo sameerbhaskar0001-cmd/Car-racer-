@@ -64,7 +64,7 @@ async function initApp() {
     }
   }
 
-  const pixelRatio = isScreenshotUrl ? 1.0 : Math.min(window.devicePixelRatio, 2.0);
+  const pixelRatio = isScreenshotUrl ? 1.0 : Math.min(window.devicePixelRatio, 1.5);
   renderer.setPixelRatio(pixelRatio);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -150,8 +150,7 @@ async function initApp() {
         return;
       }
 
-      // 48-point Golden-Angle Vogel spiral with depth-aware foreground occlusion protection
-      // so sharp foreground objects (like the car) never bleed blurry halos onto the background behind them
+      // Lightweight 12-tap Golden-Angle Vogel spiral for mobile 60 FPS performance
       float ign = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) );
       float thetaJitter = ( ign - 0.5 ) * 0.45;
       float cj = cos( thetaJitter );
@@ -160,36 +159,32 @@ async function initApp() {
 
       vec4 acc = col;
       float totalWeight = 1.0;
-      for ( int i = 1; i <= 48; i++ ) {
+      for ( int i = 1; i <= 12; i++ ) {
         float fi = float( i );
-        float r = sqrt( fi / 48.5 );
+        float r = sqrt( fi / 12.5 );
         float theta = fi * 2.39996323;
         vec2 offset = rotMat * ( vec2( cos( theta ), sin( theta ) ) * r );
         vec2 sampleUv = vUv + offset * radius;
-        float sampleViewZ = getViewZ( getDepth( sampleUv ) );
-        float sampleDiff = max( 0.0, abs( focus + sampleViewZ ) - deadzone );
-
-        // Prevent background pixels from sampling sharp closer foreground pixels across depth edges
-        float fgReject = ( sampleViewZ > viewZ + 0.006 )
-          ? smoothstep( 0.0, max( 0.008, absDiff * 0.55 ), sampleDiff )
-          : 1.0;
-        float w = ( 1.0 - 0.26 * r * r ) * fgReject;
-        acc += texture2D( tColor, sampleUv ) * w;
-        totalWeight += w;
+        acc += texture2D( tColor, sampleUv );
+        totalWeight += 1.0;
       }
 
       gl_FragColor = vec4( acc.rgb / totalWeight, 1.0 );
     }
   `;
   bokehPass.materialBokeh.needsUpdate = true;
+  bokehPass.enabled = false;
 
   composer.addPass(bokehPass);
 
   const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    0.06, // strength (crisp glow for night scene LEDs, cyan mousepad & under-track strips)
-    0.22, // radius
-    1.15  // threshold (only HDR embers/LEDs > 1.15 bloom — prevents white helmet halo!)
+    new THREE.Vector2(
+      Math.max(1, Math.floor(window.innerWidth * 0.5)),
+      Math.max(1, Math.floor(window.innerHeight * 0.5))
+    ),
+    0.04, // toned-down mobile-friendly bloom strength for smooth 60 FPS
+    0.18, // radius
+    1.20  // threshold
   );
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
@@ -232,8 +227,8 @@ async function initApp() {
     lampIntensity: 1.15,
     trackGlowIntensity: 1.00,
     micGlowIntensity: 0.85,
-    bloomStrength: 0.06,
-    dofStrength: 0.35,
+    bloomStrength: 0.04,
+    dofStrength: 0.0,
     toneMappingExposure: 0.68 + 0.08 * 1.15,
     showDustMotes: false,
     droneKartScale: false,
@@ -876,8 +871,6 @@ async function initApp() {
   }
 
   checkAndLoadGlbModels();
-  // Poll gently until all 4 GLBs are loaded
-  glbPollInterval = setInterval(checkAndLoadGlbModels, 10000);
 
   // Load the S64Compact_v1_C 13-part FBX modular car (3 Body Kits, 4 Rim Sets, 2 Spoilers)
   loadS64ModularCar()
@@ -2559,6 +2552,7 @@ async function initApp() {
   let lastVisorStr = '';
 
   function updateHUD(st) {
+    if (!isScreenshotMode) return;
     if (activeCameraMode !== 1 && activeCameraMode !== 2) return;
     // 1:150 N-Scale Speed in km/h (calibrated so 0.204 m/s cruise = 75 km/h, 0.289 m/s boost = 106 km/h)
     const absSpeed = Math.abs(st.speed);
@@ -2804,6 +2798,7 @@ async function initApp() {
 
   const _showroomCamTarget = new THREE.Vector3();
   const _showroomLookTarget = new THREE.Vector3();
+  let showroomPreviewBounce = 0.0;
 
   // Expose clean engine API for React multi-screen UI ("The Race: Car Driving 3D")
   window.__theRaceEngine = {
@@ -2839,11 +2834,13 @@ async function initApp() {
       if (stats && physics.setVehicleStats) {
         physics.setVehicleStats(stats);
       }
+      showroomPreviewBounce = 1.0;
     },
     setCustomParts(parts) {
       if (microKart.setCustomParts) {
         microKart.setCustomParts(parts);
       }
+      showroomPreviewBounce = 1.0;
     },
     setTouchControl(dir, isDown) {
       if (physics.setTouchKey) {
@@ -2901,6 +2898,7 @@ async function initApp() {
       if (typeof newSettings.bloomStrength === 'number') {
         settings.bloomStrength = newSettings.bloomStrength;
         bloomPass.strength = newSettings.bloomStrength;
+        bloomPass.enabled = newSettings.bloomStrength > 0.005;
       }
       if (typeof newSettings.dofStrength === 'number') {
         settings.dofStrength = newSettings.dofStrength;
@@ -2930,6 +2928,7 @@ async function initApp() {
       physics.state.finishTotalTime = total;
       physics.state.raceFinished = true;
       physics.state.raceClockActive = false;
+      physics.state.speed = 0.0;
       if (audioSynth.playRaceFinishFanfare) {
         audioSynth.playRaceFinishFanfare();
       }
@@ -2952,7 +2951,7 @@ async function initApp() {
   };
 
   function animate() {
-    const dt = isScreenshotMode ? 1 / 60 : clock.getDelta();
+    const dt = isScreenshotMode ? 1 / 60 : Math.min(clock.getDelta(), 0.05);
     const elapsedTime =
       (isScreenshotMode ? screenshotFrameCounter / 60 : clock.getElapsedTime()) +
       requestedTimeOffset;
@@ -2965,13 +2964,18 @@ async function initApp() {
 
     if (isShowroomActive) {
       showroomGroup.visible = true;
-      turntableAngle += dt * 0.68;
+      turntableAngle += dt * 0.62;
       showroomPlatform.rotation.y = turntableAngle;
 
-      // Place car on the circular glowing turntable slowly rotating 360 degrees
+      if (showroomPreviewBounce > 0) {
+        showroomPreviewBounce = Math.max(0.0, showroomPreviewBounce - dt * 4.5);
+      }
+      const bounceOffset = Math.sin(showroomPreviewBounce * Math.PI) * 0.0012;
+
+      // Place car on the circular glowing turntable slowly rotating 360 degrees in the center of the screen
       microKart.setCockpitRoadOnly(false);
-      microKart.kartRoot.scale.setScalar(0.86);
-      microKart.kartRoot.position.set(0.0, 0.0884, 0.22);
+      microKart.kartRoot.scale.setScalar(currentAppScreen === 'GARAGE' ? 0.94 : 0.88);
+      microKart.kartRoot.position.set(0.0, 0.0884 + bounceOffset, 0.22);
       microKart.kartRoot.rotation.set(0, turntableAngle + Math.PI * 0.22, 0);
       microKart.chassisGroup.rotation.set(0, 0, 0);
       microKart.chassisGroup.position.y = Math.sin(elapsedTime * 2.5) * 0.00012;
@@ -2980,16 +2984,16 @@ async function initApp() {
         microKart.sparkPoints.visible = false;
       }
 
-      // Frame the rotating car & turntable cleanly in 16:9 landscape
+      // Frame the rotating car & turntable cleanly in the center of the viewport
       orbitControls.enabled = false;
       if (currentAppScreen === 'GARAGE') {
-        _showroomCamTarget.set(0.0085, 0.0975, 0.246);
-        _showroomLookTarget.set(0.0045, 0.0912, 0.220);
+        _showroomCamTarget.set(0.0, 0.0968, 0.246);
+        _showroomLookTarget.set(0.0, 0.0906, 0.220);
       } else {
-        _showroomCamTarget.set(0.0095, 0.0990, 0.252);
-        _showroomLookTarget.set(0.0052, 0.0915, 0.220);
+        _showroomCamTarget.set(0.0065, 0.0985, 0.250);
+        _showroomLookTarget.set(0.0032, 0.0912, 0.220);
       }
-      const camLerp = 1.0 - Math.exp(-dt * 7.5);
+      const camLerp = 1.0 - Math.exp(-dt * 8.0);
       camCurrentPos.lerp(_showroomCamTarget, camLerp);
       camCurrentLookAt.lerp(_showroomLookTarget, camLerp);
       camera.up.set(0, 1, 0);
@@ -3001,17 +3005,19 @@ async function initApp() {
         coaster.updateUnderTrackLed(elapsedTime, settings.trackGlowIntensity ?? 1.00);
       }
 
-      camera.getWorldDirection(_dofCamDir);
-      const showroomDepth = computeExactViewDepth(showroomGroup.position);
-      currentFocusDistance = THREE.MathUtils.lerp(
-        currentFocusDistance,
-        Math.max(0.015, showroomDepth),
-        0.25
-      );
-      if (bokehPass.uniforms) {
+      const activeShowroomDof = (settings.dofStrength ?? 0.0) > 0.01;
+      bokehPass.enabled = activeShowroomDof;
+      if (activeShowroomDof && bokehPass.uniforms) {
+        camera.getWorldDirection(_dofCamDir);
+        const showroomDepth = computeExactViewDepth(showroomGroup.position);
+        currentFocusDistance = THREE.MathUtils.lerp(
+          currentFocusDistance,
+          Math.max(0.015, showroomDepth),
+          0.25
+        );
         bokehPass.uniforms['focus'].value = currentFocusDistance;
-        bokehPass.uniforms['aperture'].value = 0.0045 * (settings.dofStrength ?? 0.35);
-        bokehPass.uniforms['maxblur'].value = 0.0038;
+        bokehPass.uniforms['aperture'].value = 0.0035 * (settings.dofStrength ?? 0.0);
+        bokehPass.uniforms['maxblur'].value = 0.0028;
       }
     } else {
       showroomGroup.visible = false;
@@ -3040,61 +3046,52 @@ async function initApp() {
       // 4. Update Camera
       updateCamera(dt, elapsedTime, st);
 
-      // 4b. Dynamically Autofocus Depth of Field (BokehPass)
-      camera.getWorldDirection(_dofCamDir);
-      _dofKartPos.copy(st.position).addScaledVector(st.normal, 0.0030);
-      const kartViewDepth = computeExactViewDepth(_dofKartPos);
-      const safeKartDepth = THREE.MathUtils.clamp(
-          kartViewDepth > camera.near + 0.002 ?
-              kartViewDepth :
-              camera.position.distanceTo(_dofKartPos),
-          0.003, 2.2);
-
-      let targetFocusDist;
-      if (activeCameraMode === 7) {
-        targetFocusDist = 1.85;
-      } else if (activeCameraMode === 8) {
-        targetFocusDist = 0.42;
-      } else if (activeCameraMode === 5) {
-        targetFocusDist = THREE.MathUtils.clamp(
-          camera.position.distanceTo(orbitControls.target),
-          0.025,
-          2.5
-        );
-      } else if (settings.dofFocusNearest) {
-        targetFocusDist = THREE.MathUtils.clamp(
-            computeNearestVisibleObjectDepth(_dofKartPos), 0.003, 2.2);
-      } else if (activeCameraMode === 2) {
-        targetFocusDist = 0.042;
-      } else {
-        targetFocusDist = safeKartDepth;
-      }
-      currentFocusDistance = isScreenshotMode ?
-          targetFocusDist :
-          THREE.MathUtils.lerp(currentFocusDistance, targetFocusDist, 0.38);
-
+      // 4b. Dynamically Autofocus Depth of Field (BokehPass) only when enabled
       const urlDofParam = urlParams.get('dof');
       const dofScale =
-        urlDofParam !== null ? parseFloat(urlDofParam) : (settings.dofStrength ?? 0.35);
+        urlDofParam !== null ? parseFloat(urlDofParam) : (settings.dofStrength ?? 0.0);
       const isRoomCam = activeCameraMode === 5 || activeCameraMode === 7 || activeCameraMode === 8;
-      const is1PCam = activeCameraMode === 1 || activeCameraMode === 2;
-      const isCineDofCam =
-        activeCameraMode === 3 ||
-        activeCameraMode === 4 ||
-        activeCameraMode === 6 ||
-        activeCameraMode === 9;
       const activeDofScale = dofScale > 0.01 && !isRoomCam ? dofScale : 0.0;
-      bokehPass.enabled = true;
-      if (bokehPass.uniforms) {
+      bokehPass.enabled = activeDofScale > 0.01;
+
+      if (bokehPass.enabled && bokehPass.uniforms) {
+        camera.getWorldDirection(_dofCamDir);
+        _dofKartPos.copy(st.position).addScaledVector(st.normal, 0.0030);
+        const kartViewDepth = computeExactViewDepth(_dofKartPos);
+        const safeKartDepth = THREE.MathUtils.clamp(
+          kartViewDepth > camera.near + 0.002
+            ? kartViewDepth
+            : camera.position.distanceTo(_dofKartPos),
+          0.003,
+          2.2
+        );
+        const targetFocusDist = activeCameraMode === 2 ? 0.042 : safeKartDepth;
+        currentFocusDistance = isScreenshotMode
+          ? targetFocusDist
+          : THREE.MathUtils.lerp(currentFocusDistance, targetFocusDist, 0.38);
+
+        const is1PCam = activeCameraMode === 1 || activeCameraMode === 2;
         bokehPass.uniforms['focus'].value = currentFocusDistance;
-        bokehPass.uniforms['aperture'].value = isRoomCam ? 0.0 :
-            is1PCam      ? 0.0042 * activeDofScale :
-            isCineDofCam ? 0.018 * activeDofScale :
-                           0.008 * activeDofScale;
-        bokehPass.uniforms['maxblur'].value = isRoomCam ? 0.0 :
-            is1PCam      ? 0.0032 * Math.min(1.5, activeDofScale) :
-            isCineDofCam ? Math.min(0.0072, 0.0042 * activeDofScale) :
-                           0.0042 * activeDofScale;
+        bokehPass.uniforms['aperture'].value = is1PCam
+          ? 0.0032 * activeDofScale
+          : 0.006 * activeDofScale;
+        bokehPass.uniforms['maxblur'].value = is1PCam
+          ? 0.0024 * Math.min(1.5, activeDofScale)
+          : 0.0032 * activeDofScale;
+      }
+
+      // Render 3D sparks directly when BokehPass is disabled
+      if (!bokehPass.enabled && microKart && microKart.sparkPoints && microKart.sparkPoints.visible) {
+        const sMat = microKart.sparkPoints.material;
+        if (sMat && sMat.uniforms) {
+          sMat.uniforms.uNearClip.value = camera.near;
+          sMat.uniforms.uFarClip.value = camera.far;
+          sMat.uniforms.uFocus.value = 0.12;
+          sMat.uniforms.uAperture.value = 0.0;
+          sMat.uniforms.uMaxBlur.value = 0.0;
+          const drawSz = renderer.getDrawingBufferSize(_dofVec);
+          sMat.uniforms.uResolution.value.set(drawSz.x, drawSz.y);
+        }
       }
 
       // 5. Update WebAudio Synth & HUD

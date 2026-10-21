@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BodyKitSpec, RaceTelemetry, formatRaceTime } from '../types/game';
 
 interface RaceHUDProps {
@@ -11,7 +11,9 @@ interface RaceHUDProps {
 
 export const RaceHUD: React.FC<RaceHUDProps> = ({
   telemetry,
+  equippedKit,
   onOpenMenu,
+  onOpenSettings,
 }) => {
   const [activeControls, setActiveControls] = useState<{
     left: boolean;
@@ -27,89 +29,123 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
     nitro: false,
   });
 
-  const handleControlPress = (
-    dir: 'left' | 'right' | 'forward' | 'backward',
-    isDown: boolean
-  ) => {
-    setActiveControls((prev) => ({ ...prev, [dir]: isDown }));
-    window.__theRaceEngine?.setTouchControl(dir, isDown);
-  };
+  // Clear all touch controls when unmounting RaceHUD
+  useEffect(() => {
+    return () => {
+      window.__theRaceEngine?.clearTouchControls();
+    };
+  }, []);
 
-  const handleNitroPress = (isDown: boolean) => {
+  const setDirectionState = useCallback(
+    (dir: 'left' | 'right' | 'forward' | 'backward', isDown: boolean) => {
+      setActiveControls((prev) => {
+        if (prev[dir] === isDown) return prev;
+        return { ...prev, [dir]: isDown };
+      });
+      window.__theRaceEngine?.setTouchControl(dir, isDown);
+    },
+    []
+  );
+
+  const handleNitroTrigger = useCallback((isDown: boolean) => {
     setActiveControls((prev) => ({ ...prev, nitro: isDown }));
     if (isDown) {
       window.__theRaceEngine?.triggerNitro();
     }
-  };
+  }, []);
 
   const isBoosting = telemetry.boostActive > 0.05;
+  const nitroPercent = Math.round(Math.min(1, Math.max(0, telemetry.boostCharge)) * 100);
 
   return (
-    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between px-5 py-4 sm:px-8 sm:py-6 select-none touch-none">
-      {/* Top Bar: Minimal Menu Button (Left) | Speedometer & Lap Counter (Center/Right) */}
-      <header className="flex items-start justify-between gap-4 w-full">
-        {/* Top-Left: Minimal Menu Button */}
-        <div className="pointer-events-auto">
+    <div className="fixed inset-0 z-30 pointer-events-none flex flex-col justify-between px-4 py-3 sm:px-7 sm:py-5 select-none touch-none">
+      {/* TOP BAR: Navigation (Left) | Live Telemetry, Lap & Speedometer (Right) */}
+      <header className="flex items-start justify-between gap-3 w-full">
+        {/* Top-Left: Menu & Settings */}
+        <div className="pointer-events-auto flex items-center gap-2.5">
           <button
             type="button"
-            onClick={onOpenMenu}
-            className="px-4 py-2.5 rounded-lg bg-slate-950/85 border border-white/20 hover:border-cyan-400 font-['Orbitron'] italic font-bold text-xs text-white tracking-wider uppercase cursor-pointer transition-colors shadow-lg active:scale-95"
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              window.__theRaceEngine?.clearTouchControls();
+              onOpenMenu();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              window.__theRaceEngine?.clearTouchControls();
+              onOpenMenu();
+            }}
+            className="px-3.5 py-2 rounded-xl bg-slate-950/80 border border-white/25 active:border-cyan-400 font-['Orbitron'] italic font-bold text-xs text-white tracking-wider uppercase cursor-pointer shadow-lg active:scale-95"
           >
             ← MENU
           </button>
+
+          <button
+            type="button"
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              onOpenSettings();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenSettings();
+            }}
+            aria-label="Settings"
+            className="w-9 h-9 rounded-xl bg-slate-950/80 border border-white/20 active:border-cyan-400 text-slate-200 flex items-center justify-center cursor-pointer shadow-lg active:scale-95"
+          >
+            ⚙
+          </button>
+
+          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/70 border border-white/10">
+            <span
+              className="w-2.5 h-2.5 rounded-full"
+              style={{ backgroundColor: equippedKit.primaryColor }}
+            />
+            <span className="font-['Orbitron'] italic font-bold text-[11px] text-slate-200 tracking-wide">
+              {equippedKit.name}
+            </span>
+          </div>
         </div>
 
-        {/* Top Center/Right: Clean Digital Speedometer (KM/H) & Lap Counter */}
-        <div className="flex items-center gap-6 sm:gap-8">
-          {/* Digital Speedometer */}
-          <div className="flex flex-col items-end">
-            <div className="flex items-baseline gap-1.5 sm:gap-2">
-              <span
-                className="font-['Orbitron'] italic font-black text-3xl sm:text-5xl text-white tabular-nums leading-none tracking-tight"
-                style={{
-                  textShadow: isBoosting
-                    ? '0 0 20px rgba(0, 240, 255, 0.95)'
-                    : '0 2px 10px rgba(0, 0, 0, 0.95)',
-                }}
-              >
-                {telemetry.speedKmh}
-              </span>
-              <span className="font-['Orbitron'] italic font-extrabold text-xs sm:text-sm text-cyan-300 tracking-wider">
-                KM/H
-              </span>
-            </div>
+        {/* Top-Right: Speedometer, Nitro Bar & Lap Counter */}
+        <div className="flex items-center gap-4 sm:gap-6 bg-slate-950/75 border border-white/15 rounded-2xl px-4 py-2 shadow-xl">
+          {/* Speedometer */}
+          <div className="flex items-baseline gap-1.5">
+            <span
+              className="font-['Orbitron'] italic font-black text-3xl sm:text-4xl text-white tabular-nums leading-none"
+              style={{
+                textShadow: isBoosting
+                  ? '0 0 18px rgba(0, 240, 255, 0.95)'
+                  : '0 2px 8px rgba(0, 0, 0, 0.95)',
+              }}
+            >
+              {telemetry.speedKmh}
+            </span>
+            <span className="font-['Orbitron'] italic font-extrabold text-[11px] text-cyan-300 tracking-wider">
+              KM/H
+            </span>
           </div>
 
-          {/* Lap Counter & Lap Time */}
-          <div className="flex flex-col items-end border-l border-white/15 pl-5 sm:pl-6">
-            <div
-              className="font-['Orbitron'] italic font-black text-lg sm:text-2xl tracking-wider text-white leading-none"
-              style={{
-                textShadow: '0 2px 10px rgba(0, 0, 0, 0.95)',
-              }}
-            >
+          {/* Lap Counter & Timer */}
+          <div className="flex flex-col items-end border-l border-white/15 pl-4">
+            <div className="font-['Orbitron'] italic font-black text-base sm:text-lg tracking-wider text-white leading-none">
               LAP <span className="text-cyan-400">{telemetry.lapCount}</span>/3
             </div>
-            <div
-              className="font-['Orbitron'] italic font-bold text-sm sm:text-base text-slate-300 tabular-nums tracking-wide mt-1"
-              style={{
-                textShadow: '0 2px 8px rgba(0, 0, 0, 0.9)',
-              }}
-            >
+            <div className="font-mono font-bold text-xs sm:text-sm text-amber-300 tabular-nums tracking-tight mt-0.5">
               {formatRaceTime(telemetry.totalRaceTime || telemetry.currentLapTime)}
             </div>
           </div>
         </div>
       </header>
 
-      {/* Center Grid Countdown Overlay */}
+      {/* CENTER COUNTDOWN OVERLAY */}
       {telemetry.countdownStep > 0 && (
         <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-30">
           <div
-            className="font-['Orbitron'] italic font-black text-7xl sm:text-9xl text-white"
+            className="font-['Orbitron'] italic font-black text-7xl sm:text-8xl text-white"
             style={{
               textShadow:
-                '0 0 32px rgba(255, 59, 48, 0.85), 0 6px 20px rgba(0, 0, 0, 0.95)',
+                '0 0 32px rgba(255, 59, 48, 0.9), 0 6px 20px rgba(0, 0, 0, 0.95)',
             }}
           >
             {telemetry.countdownStep}
@@ -117,143 +153,243 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
         </div>
       )}
 
-      {/* Bottom Landscape Mobile Touch Controls */}
-      <div className="pointer-events-auto flex items-end justify-between w-full pb-2">
-        {/* Bottom Left: [ < ] (Steer Left) and [ > ] (Steer Right) */}
+      {/* ERGONOMIC MOBILE DUAL-THUMB CONTROLS:
+          BOTTOM-LEFT: Large Translucent Left / Right Steering Pads
+          BOTTOM-RIGHT: Ergonomic Cluster with Brake/Reverse, Giant Accelerate Pedal, and Nitro Above */}
+      <div className="w-full flex items-end justify-between pb-1 sm:pb-2 pointer-events-none">
+        {/* BOTTOM-LEFT: STEERING (LEFT & RIGHT THUMB PADS) */}
         <div
-          className="flex items-center gap-3 sm:gap-4"
+          className="pointer-events-auto flex items-center gap-3 sm:gap-4"
           role="group"
-          aria-label="Steering Touch Controls"
+          aria-label="Steering Controls"
         >
-          {/* Steer Left [ < ] */}
+          {/* STEER LEFT */}
           <button
             type="button"
-            onPointerDown={(e) => {
+            onTouchStart={(e) => {
               e.preventDefault();
-              handleControlPress('left', true);
+              e.stopPropagation();
+              setDirectionState('left', true);
             }}
-            onPointerUp={(e) => {
+            onTouchEnd={(e) => {
               e.preventDefault();
-              handleControlPress('left', false);
+              e.stopPropagation();
+              setDirectionState('left', false);
             }}
-            onPointerLeave={() => handleControlPress('left', false)}
-            onPointerCancel={() => handleControlPress('left', false)}
+            onTouchCancel={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDirectionState('left', false);
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setDirectionState('left', true);
+            }}
+            onMouseUp={() => setDirectionState('left', false)}
+            onMouseLeave={() => setDirectionState('left', false)}
             aria-label="Steer Left"
-            className={`w-18 h-18 sm:w-22 sm:h-22 rounded-2xl flex flex-col items-center justify-center border-2 transition-all select-none touch-none cursor-pointer ${
+            className={`w-20 h-20 sm:w-24 sm:h-24 rounded-3xl flex flex-col items-center justify-center border-2 transition-transform select-none touch-none cursor-pointer ${
               activeControls.left
-                ? 'bg-amber-500/45 border-amber-300 text-white scale-95 shadow-[0_0_24px_rgba(251,191,36,0.7)]'
-                : 'bg-slate-950/85 border-amber-400/50 text-amber-200 hover:border-amber-300 shadow-xl'
+                ? 'bg-cyan-400/40 border-cyan-200 text-white scale-95 shadow-[0_0_24px_rgba(0,240,255,0.75)]'
+                : 'bg-slate-950/55 border-white/30 text-white/90 shadow-lg'
             }`}
           >
-            <span className="font-['Orbitron'] font-black text-2xl sm:text-3xl leading-none">
-              &lt;
+            <svg
+              className="w-9 h-9 sm:w-11 sm:h-11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            <span className="font-['Orbitron'] font-bold text-[9px] tracking-widest uppercase mt-0.5 opacity-80">
+              LEFT
             </span>
           </button>
 
-          {/* Steer Right [ > ] */}
+          {/* STEER RIGHT */}
           <button
             type="button"
-            onPointerDown={(e) => {
+            onTouchStart={(e) => {
               e.preventDefault();
-              handleControlPress('right', true);
+              e.stopPropagation();
+              setDirectionState('right', true);
             }}
-            onPointerUp={(e) => {
+            onTouchEnd={(e) => {
               e.preventDefault();
-              handleControlPress('right', false);
+              e.stopPropagation();
+              setDirectionState('right', false);
             }}
-            onPointerLeave={() => handleControlPress('right', false)}
-            onPointerCancel={() => handleControlPress('right', false)}
+            onTouchCancel={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDirectionState('right', false);
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setDirectionState('right', true);
+            }}
+            onMouseUp={() => setDirectionState('right', false)}
+            onMouseLeave={() => setDirectionState('right', false)}
             aria-label="Steer Right"
-            className={`w-18 h-18 sm:w-22 sm:h-22 rounded-2xl flex flex-col items-center justify-center border-2 transition-all select-none touch-none cursor-pointer ${
+            className={`w-20 h-20 sm:w-24 sm:h-24 rounded-3xl flex flex-col items-center justify-center border-2 transition-transform select-none touch-none cursor-pointer ${
               activeControls.right
-                ? 'bg-amber-500/45 border-amber-300 text-white scale-95 shadow-[0_0_24px_rgba(251,191,36,0.7)]'
-                : 'bg-slate-950/85 border-amber-400/50 text-amber-200 hover:border-amber-300 shadow-xl'
+                ? 'bg-cyan-400/40 border-cyan-200 text-white scale-95 shadow-[0_0_24px_rgba(0,240,255,0.75)]'
+                : 'bg-slate-950/55 border-white/30 text-white/90 shadow-lg'
             }`}
           >
-            <span className="font-['Orbitron'] font-black text-2xl sm:text-3xl leading-none">
-              &gt;
+            <svg
+              className="w-9 h-9 sm:w-11 sm:h-11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            <span className="font-['Orbitron'] font-bold text-[9px] tracking-widest uppercase mt-0.5 opacity-80">
+              RIGHT
             </span>
           </button>
         </div>
 
-        {/* Bottom Right: [ BRAKE / REVERSE ] and [ ACCEL ] (Plus Nitro Boost) */}
+        {/* BOTTOM-RIGHT: ERGONOMIC PEDAL CLUSTER (NITRO ABOVE + BRAKE/REVERSE & ACCEL BELOW) */}
         <div
-          className="flex items-end gap-3 sm:gap-4"
+          className="pointer-events-auto flex flex-col items-end gap-2.5 sm:gap-3"
           role="group"
-          aria-label="Driving Pedals"
+          aria-label="Throttle, Brake and Nitro Controls"
         >
-          {/* Nitro Boost Button */}
+          {/* Upper-Right Thumb Arc: NITRO BOOST BUTTON with Charge Fill */}
           <button
             type="button"
-            onPointerDown={(e) => {
+            onTouchStart={(e) => {
               e.preventDefault();
-              handleNitroPress(true);
+              e.stopPropagation();
+              handleNitroTrigger(true);
             }}
-            onPointerUp={(e) => {
+            onTouchEnd={(e) => {
               e.preventDefault();
-              handleNitroPress(false);
+              e.stopPropagation();
+              handleNitroTrigger(false);
             }}
-            onPointerLeave={() => handleNitroPress(false)}
-            onPointerCancel={() => handleNitroPress(false)}
+            onTouchCancel={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleNitroTrigger(false);
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              handleNitroTrigger(true);
+            }}
+            onMouseUp={() => handleNitroTrigger(false)}
+            onMouseLeave={() => handleNitroTrigger(false)}
             aria-label="Nitro Boost"
-            className={`h-14 sm:h-16 px-4 sm:px-5 rounded-xl font-['Orbitron'] italic font-black text-xs sm:text-sm tracking-wider uppercase flex items-center justify-center gap-1.5 border-2 transition-all select-none touch-none cursor-pointer ${
+            className={`relative overflow-hidden h-12 sm:h-14 px-5 sm:px-6 rounded-2xl font-['Orbitron'] italic font-black text-xs sm:text-sm tracking-wider uppercase flex items-center justify-center gap-2 border-2 transition-transform select-none touch-none cursor-pointer ${
               activeControls.nitro || isBoosting
-                ? 'bg-amber-400 border-white text-slate-950 scale-95 shadow-[0_0_24px_rgba(255,170,0,0.9)]'
-                : 'bg-slate-950/85 border-amber-400/60 text-amber-300 hover:border-amber-300 shadow-xl'
+                ? 'bg-amber-400/80 border-white text-slate-950 scale-95 shadow-[0_0_25px_rgba(251,191,36,0.95)]'
+                : 'bg-slate-950/60 border-amber-400/70 text-amber-300 shadow-lg'
             }`}
           >
-            <span>⚡</span>
-            <span>NITRO</span>
+            <div
+              className="absolute inset-y-0 left-0 bg-amber-400/25 pointer-events-none transition-all duration-150"
+              style={{ width: `${nitroPercent}%` }}
+            />
+            <span className="relative z-10 text-base leading-none">⚡</span>
+            <span className="relative z-10">NITRO</span>
+            <span className="relative z-10 font-mono text-[10px] opacity-90">
+              {nitroPercent}%
+            </span>
           </button>
 
-          {/* Brake / Reverse Button */}
-          <button
-            type="button"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              handleControlPress('backward', true);
-            }}
-            onPointerUp={(e) => {
-              e.preventDefault();
-              handleControlPress('backward', false);
-            }}
-            onPointerLeave={() => handleControlPress('backward', false)}
-            onPointerCancel={() => handleControlPress('backward', false)}
-            aria-label="Brake or Reverse"
-            className={`w-20 h-18 sm:w-26 sm:h-22 rounded-2xl font-['Orbitron'] italic font-black text-xs sm:text-sm tracking-wider uppercase flex items-center justify-center border-2 transition-all select-none touch-none cursor-pointer ${
-              activeControls.backward
-                ? 'bg-rose-600/50 border-rose-300 text-white scale-95 shadow-[0_0_24px_rgba(244,63,94,0.7)]'
-                : 'bg-slate-950/85 border-rose-500/50 text-rose-200 hover:border-rose-400 shadow-xl'
-            }`}
-          >
-            <div className="text-center leading-tight">
-              <div>BRAKE</div>
-              <div className="text-[10px] text-rose-300/80">REVERSE</div>
-            </div>
-          </button>
+          {/* Lower-Right Pedals Row: BRAKE/REVERSE (Left) + LARGE ACCELERATE PEDAL (Right) */}
+          <div className="flex items-end gap-3 sm:gap-4">
+            {/* BRAKE / SMOOTH REVERSE */}
+            <button
+              type="button"
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDirectionState('backward', true);
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDirectionState('backward', false);
+              }}
+              onTouchCancel={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDirectionState('backward', false);
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setDirectionState('backward', true);
+              }}
+              onMouseUp={() => setDirectionState('backward', false)}
+              onMouseLeave={() => setDirectionState('backward', false)}
+              aria-label="Brake and Reverse"
+              className={`w-20 h-18 sm:w-24 sm:h-20 rounded-2xl font-['Orbitron'] italic font-black text-xs tracking-wider uppercase flex flex-col items-center justify-center border-2 transition-transform select-none touch-none cursor-pointer ${
+                activeControls.backward
+                  ? 'bg-rose-500/50 border-rose-200 text-white scale-95 shadow-[0_0_24px_rgba(244,63,94,0.8)]'
+                  : 'bg-slate-950/55 border-rose-400/60 text-rose-200 shadow-lg'
+              }`}
+            >
+              <span className="text-xs sm:text-sm font-black">BRAKE</span>
+              <span className="text-[9px] font-bold text-rose-300/85 tracking-widest mt-0.5">
+                REV
+              </span>
+            </button>
 
-          {/* Accelerate Button */}
-          <button
-            type="button"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              handleControlPress('forward', true);
-            }}
-            onPointerUp={(e) => {
-              e.preventDefault();
-              handleControlPress('forward', false);
-            }}
-            onPointerLeave={() => handleControlPress('forward', false)}
-            onPointerCancel={() => handleControlPress('forward', false)}
-            aria-label="Accelerate"
-            className={`w-24 h-18 sm:w-30 sm:h-22 rounded-2xl font-['Orbitron'] italic font-black text-sm sm:text-base tracking-wider uppercase flex items-center justify-center border-2 transition-all select-none touch-none cursor-pointer ${
-              activeControls.forward
-                ? 'bg-cyan-500/50 border-cyan-200 text-white scale-95 shadow-[0_0_28px_rgba(0,240,255,0.85)]'
-                : 'bg-slate-950/85 border-cyan-400/65 text-cyan-200 hover:border-cyan-300 shadow-xl'
-            }`}
-          >
-            ACCEL
-          </button>
+            {/* LARGE PRIMARY ACCELERATE PEDAL */}
+            <button
+              type="button"
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDirectionState('forward', true);
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDirectionState('forward', false);
+              }}
+              onTouchCancel={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDirectionState('forward', false);
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setDirectionState('forward', true);
+              }}
+              onMouseUp={() => setDirectionState('forward', false)}
+              onMouseLeave={() => setDirectionState('forward', false)}
+              aria-label="Accelerate"
+              className={`w-24 h-22 sm:w-28 sm:h-26 rounded-3xl font-['Orbitron'] italic font-black text-sm sm:text-base tracking-wider uppercase flex flex-col items-center justify-center border-2 transition-transform select-none touch-none cursor-pointer ${
+                activeControls.forward
+                  ? 'bg-emerald-400/45 border-emerald-200 text-white scale-95 shadow-[0_0_28px_rgba(16,185,129,0.85)]'
+                  : 'bg-slate-950/55 border-emerald-400/75 text-emerald-200 shadow-xl'
+              }`}
+            >
+              <svg
+                className="w-7 h-7 sm:w-8 sm:h-8 mb-0.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M18 15l-6-6-6 6" />
+              </svg>
+              <span>ACCEL</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

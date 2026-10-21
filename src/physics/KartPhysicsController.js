@@ -303,6 +303,7 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
     wasCountdownLocked: false,
     launchWindowTimer: 0.0,
     lapCount: 1,
+    lapDistanceTraveled: 0.0,
     currentLapTime: 0.0,
     totalRaceTime: 0.0,
     lapTimes: [],
@@ -456,6 +457,7 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
     state.totalRaceTime = 0.0;
     state.currentLapTime = 0.0;
     state.lapCount = 1;
+    state.lapDistanceTraveled = 0.0;
     state.lapTimes = [];
     state.finishTotalTime = null;
     state.raceClockActive = false;
@@ -467,6 +469,11 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
     state.railHitCooldown = 0.0;
     state.angledIntoRail = false;
     state.steeringAway = false;
+    kbKeys.forward = false;
+    kbKeys.backward = false;
+    kbKeys.left = false;
+    kbKeys.right = false;
+    clearTouchKeys();
     teleportToSector(6);
   }
 
@@ -511,13 +518,12 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
     if (state.countdownLocked || state.raceFinished) return false;
     if (state.boostCharge >= 0.12 || state.boostActive <= 0.1) {
       if (state.autopilot) setAutopilot(false);
-      kbKeys.forward = true;
-      syncCombinedKeys();
+      // Do NOT set kbKeys.forward = true here (fixes mobile touch auto-accelerate bug!)
       const boostDur = Math.max(0.85, state.boostCharge * 1.45);
       state.boostActive = Math.max(state.boostActive, boostDur);
       state.boostCharge = Math.max(0.0, state.boostCharge - 0.32);
-      if (state.speed < 0.08) {
-        state.speed = 0.12 * state.topSpeedMultiplier;
+      if (state.speed < 0.10) {
+        state.speed = 0.14 * state.topSpeedMultiplier;
       }
       return true;
     }
@@ -741,40 +747,51 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
       );
       const currentManualMaxSpeed =
         (state.boostActive > 0 ? boostMaxSpeed : manualMaxSpeed) * dynamicManualTopFactor;
-      if (throttle === 0) {
-        // Auto-Hold Parking Brake when neither W/Up nor S/Down is held:
-        // Decelerate smoothly at 1.6 m/s² to 0.0 m/s
-        const brakeDecel = 1.6 * clampedDt;
-        if (Math.abs(state.speed) <= brakeDecel) {
+      if (throttle === 0 && state.boostActive <= 0.0) {
+        // Natural coasting friction when neither Accelerate nor Brake/Reverse is held:
+        // Gradually slow the car to a smooth stop (never auto-accelerates!)
+        const coastDecel = (0.38 + Math.abs(state.speed) * 1.15) * clampedDt;
+        if (Math.abs(state.speed) <= coastDecel) {
           state.speed = 0.0;
         } else {
-          state.speed -= Math.sign(state.speed) * brakeDecel;
+          state.speed -= Math.sign(state.speed) * coastDecel;
         }
-        if (Math.abs(state.speed) < 0.008) {
+        if (Math.abs(state.speed) < 0.004) {
           state.speed = 0.0;
         }
       } else {
-        const gravitySlopeAccel = -frame.slope * 0.22;
+        const gravitySlopeAccel = -frame.slope * 0.20;
         let engineAccel = 0.0;
-        if (throttle > 0) {
-          // If currently moving backward, brake briskly first, then accelerate at manualAccel (0.204 m/s²)
+        if (throttle > 0 || state.boostActive > 0.0) {
+          const effThrottle = Math.max(throttle, state.boostActive > 0 ? 1.0 : 0.0);
+          // If currently moving backward, brake briskly to 0 first, then accelerate forward
           engineAccel =
-            state.speed < -0.01
-              ? 1.25 * throttle
-              : (state.boostActive > 0 ? 0.36 : manualAccel) * throttle;
-        } else {
-          // Pressing S / Down: brake briskly if moving forward, or reverse gently
-          engineAccel = state.speed > 0.01 ? 1.35 * throttle : 0.19 * throttle;
-        }
-        state.speed += (engineAccel + gravitySlopeAccel) * clampedDt;
-        if (state.speed > currentManualMaxSpeed) {
-          state.speed = THREE.MathUtils.lerp(
-            state.speed,
-            currentManualMaxSpeed,
-            1.0 - Math.exp(-8.5 * clampedDt)
-          );
-        } else {
-          state.speed = Math.max(-0.12 * state.topSpeedMultiplier, state.speed);
+            state.speed < -0.008
+              ? 1.35 * effThrottle
+              : (state.boostActive > 0 ? 0.36 : manualAccel) * effThrottle;
+          state.speed += (engineAccel + gravitySlopeAccel) * clampedDt;
+          if (state.speed > currentManualMaxSpeed) {
+            state.speed = THREE.MathUtils.lerp(
+              state.speed,
+              currentManualMaxSpeed,
+              1.0 - Math.exp(-8.5 * clampedDt)
+            );
+          }
+        } else if (throttle < 0) {
+          // Holding Brake / Reverse:
+          // 1) When moving forward (speed > 0.012), apply strong disc brakes
+          // 2) When velocity is near zero (speed <= 0.012), smoothly transition into Reverse!
+          if (state.speed > 0.012) {
+            engineAccel = 1.45 * throttle; // Strong braking
+            state.speed = Math.max(0.0, state.speed + (engineAccel + gravitySlopeAccel) * clampedDt);
+          } else {
+            engineAccel = 0.16 * throttle; // Smooth reverse acceleration
+            const maxReverseSpeed = -0.105 * state.topSpeedMultiplier;
+            state.speed = Math.max(
+              maxReverseSpeed,
+              state.speed + (engineAccel + gravitySlopeAccel * 0.5) * clampedDt
+            );
+          }
         }
       }
     }
@@ -951,98 +968,79 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
       absLat >= 0.0078 &&
       ((signLatCurrent > 0 && turnRight < 0) || (signLatCurrent < 0 && turnRight > 0));
 
-    if (absLat < 0.0086) {
+    if (absLat < 0.0084) {
       state.railImpactActive = false;
     }
 
-    if (absLat >= 0.0078 && absLat < 0.0090) {
-      // Stage 1 — Red/White Curbs (0.0078 <= |lateralOffset| < 0.0090)
-      state.curbRumble = THREE.MathUtils.clamp((absLat - 0.0078) / 0.0012, 0.0, 1.0);
-      if (!isAiCruise && !isInsideApexRail) {
-        state.speed *= 1.0 - 0.12 * state.curbRumble * clampedDt;
+    if (absLat >= 0.0076 && absLat < 0.0086) {
+      // Stage 1 — Red/White Curbs (0.0076 <= |lateralOffset| < 0.0086):
+      // Audible/tactile rumble & mild curb drag warning before the wall
+      state.curbRumble = THREE.MathUtils.clamp((absLat - 0.0076) / 0.0010, 0.0, 1.0);
+      if (!isAiCruise) {
+        state.speed *= Math.max(0.75, 1.0 - 0.45 * state.curbRumble * clampedDt);
       }
-    } else if (absLat >= 0.0090) {
-      // Stage 2 — Guardrail Contact (|lateralOffset| >= 0.0090)
+    } else if (absLat >= 0.0086) {
+      // Stage 2 — Guardrail Wall Collision (|lateralOffset| >= 0.0086):
+      // Anti-Wall-Riding Physics: Heavy friction and speed penalty on ANY wall contact!
       const signLat = Math.sign(state.lateralOffset) || 1;
-      state.lateralOffset = signLat * 0.0090;
+      state.lateralOffset = signLat * 0.0086;
       state.lateralVel = 0.0;
+      state.curbRumble = 1.0;
 
       if (!isAiCruise) {
-        const insideApexContact =
-          Math.abs(frame.signedCurvature) > 0.35 && signLat * frame.signedCurvature > 0;
+        // Cancel nitro and clean-corner bonus immediately on wall contact
+        state.boostActive = 0.0;
+        state.cornerCleanTimer = 0.0;
+        state.isDrifting = false;
+
         const steeringAway =
           (signLat > 0 && turnRight < 0) || (signLat < 0 && turnRight > 0);
-        const steeringIntoWall =
-          (signLat > 0 && turnRight > 0) || (signLat < 0 && turnRight < 0);
+        const wallIncidenceRad = Math.max(0.0, -signLat * state.headingYaw);
 
-        if (insideApexContact && !steeringIntoWall) {
-          // Gliding along the INSIDE apex of a corner: align nose parallel to the apex curb without stopping!
-          state.lateralOffset = signLat * 0.0085;
-          state.headingYaw = signLat > 0
-            ? Math.max(0.0, state.headingYaw)
-            : Math.min(0.0, state.headingYaw);
-          state.curbRumble = 0.5;
-          state.angledIntoRail = false;
-          state.steeringAway = steeringAway;
+        // Initial wall impact shock & heavy speed loss (prevents bouncing off edges at full speed)
+        if (!state.railImpactActive && state.railHitCooldown <= 0.0) {
+          state.railImpactActive = true;
+          state.railHitCooldown = 0.30;
+          const impactSeverity = THREE.MathUtils.clamp(
+            0.45 + wallIncidenceRad * 1.4 + (Math.abs(state.speed) / manualMaxSpeed) * 0.45,
+            0.4,
+            1.0
+          );
+          // Immediately cut 45% to 65% of speed upon hitting the wall
+          const impactRetention = THREE.MathUtils.clamp(0.55 - wallIncidenceRad * 0.45, 0.32, 0.55);
+          state.speed *= impactRetention;
+          state.hopVel = Math.max(state.hopVel, 0.007);
+          if (onRailImpactCallback) onRailImpactCallback(impactSeverity);
+        }
+
+        // Continuous heavy wall-scraping friction every frame the player stays against the wall:
+        // Holding accelerate against the wall crawls at <= 28% max speed with heavy drag!
+        const wallFrictionDrag = 3.6 + wallIncidenceRad * 4.5;
+        state.speed *= Math.max(0.20, 1.0 - wallFrictionDrag * clampedDt);
+        const maxWallScrapeSpeed = manualMaxSpeed * 0.28;
+        if (state.speed > maxWallScrapeSpeed) {
+          state.speed = THREE.MathUtils.lerp(
+            state.speed,
+            maxWallScrapeSpeed,
+            1.0 - Math.exp(-12.0 * clampedDt)
+          );
+        } else if (state.speed < -maxWallScrapeSpeed * 0.6) {
+          state.speed = -maxWallScrapeSpeed * 0.6;
+        }
+
+        if (steeringAway) {
+          // Player actively steers away from the wall back toward track center
+          state.railImpactActive = false;
+          state.headingYaw = signLat * 0.14;
+          state.lateralOffset = signLat * 0.0082;
         } else {
-          // Hitting the OUTSIDE guardrail or brushing a wall:
-          // Distinguish between a Shallow Wall-Graze (< 9.5° / 0.165 rad) and a Hard Nose-In Crash (>= 9.5°):
-          const wallIncidenceRad = -signLat * state.headingYaw;
-          const hardCrashIntoWall =
-            wallIncidenceRad >= 0.165 ||
-            (steeringIntoWall && Math.abs(frame.signedCurvature) < 0.35);
-
-          if (!hardCrashIntoWall && !steeringAway) {
-            // Shallow Wall-Graze (< 9.5°): spark-throwing rail brush that bounces the nose ~3.7° back onto the lane!
-            state.lateralOffset = signLat * 0.0084;
-            state.headingYaw = signLat * 0.065;
-            state.curbRumble = 0.85;
-            state.isDrifting = true;
-            state.driftDir = -signLat;
-            state.angledIntoRail = false;
-            state.steeringAway = false;
-            if (state.railHitCooldown <= 0.0) {
-              state.railHitCooldown = 0.22;
-              state.speed *= 0.88;
-              state.hopVel = Math.max(state.hopVel, 0.005);
-              if (onRailImpactCallback) onRailImpactCallback(0.28);
-            }
-          } else {
-            // Hard Nose-In Crash (>= 9.5° from failing to steer for a corner): heavy guardrail stop penalty
-            state.boostActive = 0.0;
-            state.cornerCleanTimer = 0.0;
-            const angledIntoRail = hardCrashIntoWall;
-            state.angledIntoRail = angledIntoRail;
-            state.steeringAway = steeringAway;
-
-            if (!state.railImpactActive && angledIntoRail && !steeringAway) {
-              state.railImpactActive = true;
-              state.railHitCooldown = 0.25;
-              const impactSeverity = THREE.MathUtils.clamp(
-                0.5 +
-                  Math.abs(state.headingYaw) * 1.2 +
-                  (Math.abs(state.speed) / manualMaxSpeed) * 0.4,
-                0.4,
-                1.0
-              );
-              state.speed *= 0.42;
-              state.hopVel = Math.max(state.hopVel, 0.010);
-              if (onRailImpactCallback) onRailImpactCallback(impactSeverity);
-            }
-
-            if (angledIntoRail && !steeringAway) {
-              // Keep realistic 12.5° nose-in scrape angle (never snap to 26°-43°) and brake to a stop against the barrier
-              state.headingYaw = -signLat * THREE.MathUtils.clamp(Math.abs(state.headingYaw), 0.14, 0.22);
-              state.speed = Math.max(0.0, state.speed - 0.55 * clampedDt);
-              state.curbRumble = 1.0;
-            } else if (steeringAway) {
-              // Player pressed the inward steering key (D off L-RAIL, or A off R-RAIL): peel smoothly off the barrier!
-              state.railImpactActive = false;
-              state.headingYaw = signLat * 0.13; // Gentle 7.5° peel-away angle toward track center
-              state.lateralOffset = signLat * 0.0083;
-              state.speed = Math.max(state.speed, 0.085 * state.topSpeedMultiplier);
-            }
-          }
+          // Deflect nose slightly inward so the car doesn't lock permanently into the wall,
+          // but keep heavy friction active until the player steers back onto the asphalt
+          state.headingYaw = THREE.MathUtils.lerp(
+            state.headingYaw,
+            signLat * 0.05,
+            1.0 - Math.exp(-8.0 * clampedDt)
+          );
         }
       }
     }
@@ -1053,12 +1051,13 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
     const ds = (state.speed * forwardProjection * clampedDt) / apexFactor;
     state.s = ((state.s + ds) % totalLength + totalLength) % totalLength;
 
-    // Continuous 3-Lap Total Race Clock & Lap Completion (Manual Mode only; NEVER advances in Autopilot P)
+    // Continuous 3-Lap Total Race Clock & Lap Completion (Manual Mode only)
     if (state.autopilot) {
       state.raceClockActive = false;
       state.currentLapTime = 0.0;
       state.totalRaceTime = 0.0;
       state.lapCount = 1;
+      state.lapDistanceTraveled = 0.0;
     } else if (!state.victoryCruise && !state.raceFinished) {
       if (state.currentLapTime > 0 && state.totalRaceTime < state.currentLapTime) {
         state.totalRaceTime = state.currentLapTime;
@@ -1069,11 +1068,23 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
       if (!state.countdownLocked && state.raceClockActive) {
         state.currentLapTime += clampedDt;
         state.totalRaceTime += clampedDt;
+        state.lapDistanceTraveled = Math.max(0.0, (state.lapDistanceTraveled || 0.0) + ds);
       }
-      if (state.speed > 0 && state.currentLapTime > 2.5) {
+
+      // Reliable finish-line crossing detection:
+      // Checks forward arc-crossing across startFinishArc once the car has driven at least 65% of a lap
+      // OR if net lap distance traveled reaches 100% of totalLength.
+      if (state.speed > 0 && state.currentLapTime > 3.0) {
         const distBefore =
           ((startFinishArc - prevS) % totalLength + totalLength) % totalLength;
-        if (distBefore > 0 && distBefore <= ds * 1.5) {
+        const crossedFinishLine =
+          distBefore > 0 &&
+          distBefore <= Math.max(ds * 2.5, 0.045) &&
+          state.lapDistanceTraveled >= totalLength * 0.65;
+        const completedFullLoopDistance = state.lapDistanceTraveled >= totalLength * 0.995;
+
+        if (crossedFinishLine || completedFullLoopDistance) {
+          state.lapDistanceTraveled = 0.0;
           state.lastLapTime = state.currentLapTime;
           if (state.bestLapTime === null || state.lastLapTime < state.bestLapTime) {
             state.bestLapTime = state.lastLapTime;
@@ -1094,11 +1105,19 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
               );
             }
           } else {
+            // 3 Laps Completed -> Freeze car controls & trigger Race Complete!
             state.finishTotalTime = state.totalRaceTime;
             state.raceFinished = true;
             state.raceClockActive = false;
             state.victoryCruise = false;
             state.boostActive = 0.0;
+            state.speed = 0.0;
+            kbKeys.forward = false;
+            kbKeys.backward = false;
+            kbKeys.left = false;
+            kbKeys.right = false;
+            clearTouchKeys();
+
             if (onLapCompleteCallback) {
               onLapCompleteCallback(
                 state.lastLapTime,

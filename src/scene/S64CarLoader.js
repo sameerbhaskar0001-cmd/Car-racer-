@@ -71,25 +71,10 @@ function upgradeBodyMaterials(fbxObj, kitId) {
     }
 
     const oldMats = Array.isArray(child.material) ? child.material : [child.material];
-    const newMats = oldMats.map((oldMat) => {
+    const newMats = oldMats.map((oldMat, matIdx) => {
       const mName = (oldMat?.name || '').toLowerCase();
 
-      if (mName.includes('car')) {
-        // Primary paint coat per body kit
-        const paintHex =
-          kitId === 'kit2' ? 0x00e5ff : kitId === 'kit3' ? 0x181c26 : 0xff1e26;
-        const pbr = new THREE.MeshStandardMaterial({
-          name: 'S64_CarPaint',
-          color: paintHex,
-          roughness: kitId === 'kit3' ? 0.24 : 0.16,
-          metalness: kitId === 'kit2' ? 0.62 : kitId === 'kit3' ? 0.78 : 0.46,
-          envMapIntensity: 1.45,
-        });
-        attachReadabilityRimShader(pbr, `s64_paint_${kitId}`, 0.28, 0.34, 0.28);
-        return pbr;
-      }
-
-      if (mName.includes('headlight')) {
+      if (mName.includes('headlight') || mName.includes('front_light')) {
         return new THREE.MeshStandardMaterial({
           name: 'S64_Headlights',
           color: 0xffffff,
@@ -101,7 +86,7 @@ function upgradeBodyMaterials(fbxObj, kitId) {
         });
       }
 
-      if (mName.includes('rear_light')) {
+      if (mName.includes('rear_light') || mName.includes('taillight') || mName.includes('brake')) {
         return new THREE.MeshStandardMaterial({
           name: 'S64_RearLights',
           color: 0xff0018,
@@ -113,7 +98,7 @@ function upgradeBodyMaterials(fbxObj, kitId) {
         });
       }
 
-      if (mName.includes('glass')) {
+      if (mName.includes('glass') || mName.includes('window') || mName.includes('windshield')) {
         const glassMat = new THREE.MeshStandardMaterial({
           name: 'S64_Glass',
           color: 0x0b1524,
@@ -127,7 +112,7 @@ function upgradeBodyMaterials(fbxObj, kitId) {
         return glassMat;
       }
 
-      if (mName.includes('exhaust')) {
+      if (mName.includes('exhaust') || mName.includes('muffler') || mName.includes('chrome')) {
         return new THREE.MeshStandardMaterial({
           name: 'S64_Exhaust',
           color: 0xd8e2f0,
@@ -137,31 +122,44 @@ function upgradeBodyMaterials(fbxObj, kitId) {
         });
       }
 
-      if (mName.includes('det2')) {
-        // Secondary trim / aero splitter / roof accent
+      if (mName.includes('det2') || mName.includes('accent') || mName.includes('stripe')) {
         const accentHex =
-          kitId === 'kit2' ? 0x0b1322 : kitId === 'kit3' ? 0xffc72c : 0x161922;
+          kitId === 'kit2' ? 0x0b1322 : kitId === 'kit3' ? 0xffc72c : 0xffffff;
         const det2Mat = new THREE.MeshStandardMaterial({
           name: 'S64_Det2',
           color: accentHex,
-          roughness: 0.26,
-          metalness: kitId === 'kit3' ? 0.85 : 0.52,
-          envMapIntensity: 1.2,
+          roughness: 0.22,
+          metalness: kitId === 'kit3' ? 0.88 : 0.52,
+          envMapIntensity: 1.3,
         });
-        attachReadabilityRimShader(det2Mat, `s64_det2_${kitId}`, 0.22, 0.28, 0.22);
+        attachReadabilityRimShader(det2Mat, `s64_det2_${kitId}`, 0.26, 0.32, 0.26);
         return det2Mat;
       }
 
-      // Underbody / Det1 carbon trim
-      const trimMat = new THREE.MeshStandardMaterial({
-        name: 'S64_Trim',
-        color: 0x151821,
-        roughness: 0.42,
-        metalness: 0.45,
-        envMapIntensity: 0.9,
+      if (mName.includes('det1') || mName.includes('under') || mName.includes('trim') || mName.includes('black')) {
+        const trimMat = new THREE.MeshStandardMaterial({
+          name: 'S64_Trim',
+          color: kitId === 'kit3' ? 0x242834 : 0x151821,
+          roughness: 0.38,
+          metalness: 0.5,
+          envMapIntensity: 1.0,
+        });
+        attachReadabilityRimShader(trimMat, 's64_trim_v1', 0.18, 0.22, 0.18);
+        return trimMat;
+      }
+
+      // Primary paint coat per body kit (matches 'car', 'body', or default index 0)
+      const paintHex =
+        kitId === 'kit2' ? 0x00e5ff : kitId === 'kit3' ? 0xffc72c : 0xff1e26;
+      const pbr = new THREE.MeshStandardMaterial({
+        name: `S64_CarPaint_${kitId}_${matIdx}`,
+        color: paintHex,
+        roughness: kitId === 'kit3' ? 0.20 : 0.15,
+        metalness: kitId === 'kit2' ? 0.65 : kitId === 'kit3' ? 0.82 : 0.48,
+        envMapIntensity: 1.55,
       });
-      attachReadabilityRimShader(trimMat, 's64_trim_v1', 0.16, 0.2, 0.16);
-      return trimMat;
+      attachReadabilityRimShader(pbr, `s64_paint_${kitId}`, 0.32, 0.38, 0.32);
+      return pbr;
     });
 
     child.material = Array.isArray(child.material) ? newMats : newMats[0];

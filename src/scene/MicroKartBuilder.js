@@ -1032,10 +1032,49 @@ export function buildMicroKart() {
     });
   }
 
+  function applyProceduralRimAndSpoiler() {
+    // Rim color styling across procedural/GLB wheels
+    if (currentRimId === 'rim1') {
+      goldRimMat.color.setHex(0x00e5ff);
+      goldRimMat.metalness = 0.85;
+      goldRimMat.roughness = 0.18;
+    } else if (currentRimId === 'rim2') {
+      goldRimMat.color.setHex(0xffc72c);
+      goldRimMat.metalness = 0.92;
+      goldRimMat.roughness = 0.20;
+    } else if (currentRimId === 'rim3') {
+      goldRimMat.color.setHex(0xe2e8f0);
+      goldRimMat.metalness = 0.95;
+      goldRimMat.roughness = 0.12;
+    } else {
+      goldRimMat.color.setHex(
+        currentBodyKit === 'kit2' ? 0x00f0ff : currentBodyKit === 'kit3' ? 0xffd24c : 0xffbb44
+      );
+      goldRimMat.metalness = 0.85;
+      goldRimMat.roughness = 0.25;
+    }
+    goldRimMat.needsUpdate = true;
+
+    // Procedural rear wing visibility/scale based on spoiler selection
+    if (rearWing && !attachedS64Car && !cockpitRoadOnly) {
+      if (currentSpoilerId === 'spoiler0') {
+        rearWing.visible = false;
+      } else if (currentSpoilerId === 'spoiler1') {
+        rearWing.visible = true;
+        rearWing.scale.set(1.05, 1.1, 1.1);
+      } else {
+        rearWing.visible = true;
+        rearWing.scale.set(1.28, 1.45, 1.35);
+      }
+    }
+  }
+
   function setCustomParts({ bodyId, rimId, spoilerId } = {}) {
     if (bodyId) currentBodyKit = bodyId;
     if (rimId) currentRimId = rimId;
     if (spoilerId !== undefined) currentSpoilerId = spoilerId;
+
+    applyProceduralRimAndSpoiler();
 
     if (attachedS64Car) {
       attachedS64Car.setConfiguration({
@@ -1043,6 +1082,8 @@ export function buildMicroKart() {
         rimId: currentRimId,
         spoilerId: currentSpoilerId,
       });
+    } else if (attachedGlbScene) {
+      applyBodyKitToGlb(attachedGlbScene, currentBodyKit);
     }
   }
 
@@ -1062,20 +1103,21 @@ export function buildMicroKart() {
       redFairingMat.metalness = 0.62;
       redFairingMat.roughness = 0.16;
       whiteStripeMat.color.setHex(0x0d1726);
-      goldRimMat.color.setHex(0x00f0ff);
     } else if (currentBodyKit === 'kit3') {
-      redFairingMat.color.setHex(0x171920);
-      redFairingMat.metalness = 0.75;
-      redFairingMat.roughness = 0.30;
-      whiteStripeMat.color.setHex(0xffc72c);
-      goldRimMat.color.setHex(0xffd24c);
+      redFairingMat.color.setHex(0xffc72c);
+      redFairingMat.metalness = 0.78;
+      redFairingMat.roughness = 0.24;
+      whiteStripeMat.color.setHex(0x161820);
     } else {
       redFairingMat.color.setHex(0xff2b1e);
       redFairingMat.metalness = 0.35;
       redFairingMat.roughness = 0.22;
       whiteStripeMat.color.setHex(0xf7f9fc);
-      goldRimMat.color.setHex(0xffbb44);
     }
+    redFairingMat.needsUpdate = true;
+    whiteStripeMat.needsUpdate = true;
+
+    applyProceduralRimAndSpoiler();
 
     if (attachedS64Car) {
       attachedS64Car.setConfiguration({

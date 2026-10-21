@@ -30,8 +30,8 @@ export function buildGoldenHourAtmosphere(scene) {
   // Angled from upper-left rear window (~38° diagonal down-and-right across desk)
   sunLight.position.set(-0.36, 0.68, -0.52);
   sunLight.castShadow = true;
-  sunLight.shadow.mapSize.width = 2048;
-  sunLight.shadow.mapSize.height = 2048;
+  sunLight.shadow.mapSize.width = 512;
+  sunLight.shadow.mapSize.height = 512;
   sunLight.shadow.camera.near = 0.08;
   sunLight.shadow.camera.far = 2.4;
   sunLight.shadow.camera.left = -0.55;
@@ -89,8 +89,8 @@ export function buildGoldenHourAtmosphere(scene) {
   lampKeyLight.position.set(0.352, 0.355, -0.085);
   lampKeyLight.target = lampTarget;
   lampKeyLight.castShadow = true;
-  lampKeyLight.shadow.mapSize.width = 2048;
-  lampKeyLight.shadow.mapSize.height = 2048;
+  lampKeyLight.shadow.mapSize.width = 512;
+  lampKeyLight.shadow.mapSize.height = 512;
   lampKeyLight.shadow.camera.near = 0.06;
   lampKeyLight.shadow.camera.far = 1.35;
   lampKeyLight.shadow.bias = -0.00035;
@@ -384,7 +384,7 @@ export function buildGoldenHourAtmosphere(scene) {
   // -------------------------------------------------------------------------
   // 4. 2,000 FLOATING GOLDEN DUST MOTES (Warm Golden Sparkle in Sunbeams)
   // -------------------------------------------------------------------------
-  const moteCount = 2000;
+  const moteCount = 400;
   const motePositions = new Float32Array(moteCount * 3);
   const motePhases = new Float32Array(moteCount);
   const moteScales = new Float32Array(moteCount);
