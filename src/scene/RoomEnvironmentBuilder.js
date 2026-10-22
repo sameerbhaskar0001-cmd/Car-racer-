@@ -193,8 +193,8 @@ function getRoomEnvironmentTextures(upgradeExternal = false) {
   // -------------------------------------------------------------------------
   // 2. PLUSH CREAM LOOP-PILE CARPET ALBEDO & NORMAL TEXTURE (512x512)
   // -------------------------------------------------------------------------
-  const cw = 512;
-  const ch = 512;
+  const cw = 128;
+  const ch = 128;
   const carpetCanvas = document.createElement('canvas');
   carpetCanvas.width = cw;
   carpetCanvas.height = ch;
@@ -250,8 +250,8 @@ function getRoomEnvironmentTextures(upgradeExternal = false) {
   // -------------------------------------------------------------------------
   // 3. DARK WALNUT MID-CENTURY DRESSER WOOD & CONCENTRIC ARC FLUTING (512x512)
   // -------------------------------------------------------------------------
-  const ww = 512;
-  const wh = 512;
+  const ww = 128;
+  const wh = 128;
   const walnutCanvas = document.createElement('canvas');
   walnutCanvas.width = ww;
   walnutCanvas.height = wh;
@@ -395,8 +395,8 @@ function getRoomEnvironmentTextures(upgradeExternal = false) {
   // 7. LIGHT WARM-GREIGE WOVEN UPHOLSTERY FABRIC ALBEDO & NORMAL (256x256)
   //    Matches the real headboard fabric in media_1790346289621.jpg (#b4ada2)
   // -------------------------------------------------------------------------
-  const bw = 512;
-  const bh = 512;
+  const bw = 128;
+  const bh = 128;
   const bedCanvas = document.createElement('canvas');
   bedCanvas.width = bw;
   bedCanvas.height = bh;

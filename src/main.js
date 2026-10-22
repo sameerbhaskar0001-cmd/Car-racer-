@@ -18,6 +18,8 @@ import { buildGoldenHourAtmosphere } from './scene/GoldenHourAtmosphere.js';
 import { buildRoomEnvironment } from './scene/RoomEnvironmentBuilder.js';
 import { createKartPhysicsController } from './physics/KartPhysicsController.js';
 import { createWebAudioSynth } from './audio/WebAudioSynth.js';
+import { createPowerupManager } from './combat/PowerupManager.js';
+import { createRivalRacersController } from './combat/RivalRacersController.js';
 
 async function initApp() {
   const container = document.getElementById('canvas-container');
@@ -211,6 +213,7 @@ async function initApp() {
   ]);
   const manifest = await manifestRes.json();
   const splineData = await splineRes.json();
+  const totalLength = splineData.total_length_m || 3.8371;
 
   // Sector lookup map
   const sectorNames = {};
@@ -254,8 +257,14 @@ async function initApp() {
   scene.add(coaster.debugGroup);
 
   const microKart = buildMicroKart();
-  microKart.kartRoot.scale.setScalar(0.38);
+  microKart.kartRoot.scale.setScalar(0.56);
   scene.add(microKart.kartRoot);
+
+  // -------------------------------------------------------------------------
+  // 3A. BEACH BUGGY COMBAT RACING: 3x AI OPPONENT KARTS & MYSTERY BOXES
+  // -------------------------------------------------------------------------
+  const powerupManager = createPowerupManager(splineData, scene);
+  const rivalsController = createRivalRacersController(splineData, scene);
 
   // -------------------------------------------------------------------------
   // 3B. 3D SHOWROOM TURNTABLE PEDESTAL (FOR 'SPLASH', 'MENU', AND 'GARAGE' STATES)
@@ -362,7 +371,7 @@ async function initApp() {
   function syncKartScaleForCamera(mode) {
     const is1P = mode === 1 || mode === 2;
     const targetScale = is1P
-      ? 0.38
+      ? 0.56
       : settings.panoKart100
         ? 1.00
         : settings.droneKartScale
@@ -870,7 +879,29 @@ async function initApp() {
     });
   }
 
-  checkAndLoadGlbModels();
+  // Only load heavy 14.2MB external GLB scene replacements when explicitly requested (?glb=1 or ?screenshot=1).
+  // On mobile/interactive gameplay, the procedural desk, coaster, and bedroom are already built and ready,
+  // avoiding the 5-10s background GLB download + CPU vertex calibration freeze on the Home screen!
+  if (isScreenshotMode || urlParams.get('glb') === '1') {
+    checkAndLoadGlbModels();
+  } else {
+    settledGlbStatus.desk = true;
+    settledGlbStatus.track = true;
+    settledGlbStatus.room = true;
+    settledGlbStatus.kart = true;
+    glbDownloadProgress.desk = 1.0;
+    glbDownloadProgress.track = 1.0;
+    glbDownloadProgress.room = 1.0;
+    glbDownloadProgress.kart = 1.0;
+    isCircuitReady = true;
+  }
+
+  // Pre-compile standard scene shaders once at startup so neither Home screen nor Race start stutters
+  try {
+    renderer.compile(scene, camera);
+  } catch (_err) {
+    // Ignore shader precompile warnings
+  }
 
   // Load the S64Compact_v1_C 13-part FBX modular car (3 Body Kits, 4 Rim Sets, 2 Spoilers)
   loadS64ModularCar()
@@ -883,8 +914,11 @@ async function initApp() {
       glbDownloadProgress.kart = 1.0;
       syncKartScaleForCamera(activeCameraMode);
       updateGlbBadge();
-      notifyWarmupProgress();
-      checkCircuitReady();
+      try {
+        renderer.compile(microKart.kartRoot, camera);
+      } catch (_e) {
+        // Ignore
+      }
     })
     .catch((err) => {
       console.warn('S64 FBX load fallback:', err);
@@ -903,17 +937,6 @@ async function initApp() {
       // Optional prop fallback
     }
   );
-
-  // Generous safety fallback only if a network request genuinely stalls
-  setTimeout(() => {
-    if (!isCircuitReady) {
-      settledGlbStatus.desk = true;
-      settledGlbStatus.track = true;
-      settledGlbStatus.kart = true;
-      settledGlbStatus.room = true;
-      checkCircuitReady();
-    }
-  }, 15000);
 
   // -------------------------------------------------------------------------
   // 4. INITIALIZE RAPIER3D WORLD & 60FPS BANKED COASTER VEHICLE CONTROLLER
@@ -943,12 +966,12 @@ async function initApp() {
   const initSt = physics.state;
   const camCurrentPos = initSt.position
     .clone()
-    .addScaledVector(initSt.tangent, -0.0154)
-    .addScaledVector(initSt.normal, 0.0074);
+    .addScaledVector(initSt.tangent, -0.0095)
+    .addScaledVector(initSt.normal, 0.0044);
   const camCurrentLookAt = initSt.position
     .clone()
-    .addScaledVector(initSt.tangent, 0.024)
-    .addScaledVector(initSt.normal, 0.0030);
+    .addScaledVector(initSt.tangent, 0.0135)
+    .addScaledVector(initSt.normal, 0.0022);
   const camCurrentUp = new THREE.Vector3(0, 1, 0);
   const camForward = initSt.tangent.clone();
   const _camTargetForward = new THREE.Vector3();
@@ -1043,9 +1066,9 @@ async function initApp() {
     }
 
     const targetNear = mode === 3 || mode === 8 ? 0.0004 :
-        mode === 1 || mode === 2                ? 0.0018 :
+        mode === 1 || mode === 2                ? 0.0012 :
                                                   0.025;
-    const targetFov = mode === 1 || mode === 2 ? 41.5 : 46;
+    const targetFov = mode === 1 ? 55.0 : mode === 2 ? 48.0 : 46.0;
     if (
       Math.abs(camera.near - targetNear) > 1e-6 ||
       Math.abs(camera.fov - targetFov) > 1e-3
@@ -1272,11 +1295,11 @@ async function initApp() {
       return;
     }
 
-    // Compute kart-anchored forward unit vector directly from C2-smoothed st.tangent + 40% of st.headingYaw
-    // (both already smoothed in KartPhysicsController.js) so the camera and kart have ZERO phase desync!
+    // Compute kart-anchored forward unit vector from C2-smoothed st.tangent + 75% of st.headingYaw
+    // so when the player steers left/right, the camera pivots closely behind the car's bumper!
     _camTargetForward
       .copy(st.tangent)
-      .applyAxisAngle(st.normal, (st.headingYaw || 0.0) * 0.40)
+      .applyAxisAngle(st.normal, (st.headingYaw || 0.0) * 0.75)
       .normalize();
     camForward.copy(_camTargetForward);
 
@@ -1284,7 +1307,6 @@ async function initApp() {
     if (carViewMode) {
       const stRight = _camDesiredPos.crossVectors(camForward, st.normal).normalize();
       if (carViewMode === 'front') {
-        // Front 3/4 macro inspection of the front hood ("4" decal, headlamps, white helmet & sleek wedge nose)
         _camDesiredPos
           .copy(st.position)
           .addScaledVector(camForward, 0.0155)
@@ -1295,7 +1317,6 @@ async function initApp() {
           .addScaledVector(camForward, 0.0005)
           .addScaledVector(st.normal, 0.0028);
       } else if (carViewMode === 'rear') {
-        // Rear 3/4 macro inspection of the twin-cylinder rear engine bay, dual chrome tailpipes, rear wing & LED backlights
         _camDesiredPos
           .copy(st.position)
           .addScaledVector(camForward, -0.0145)
@@ -1306,7 +1327,6 @@ async function initApp() {
           .addScaledVector(camForward, -0.0012)
           .addScaledVector(st.normal, 0.0030);
       } else {
-        // Side-front profile
         _camDesiredPos
           .copy(st.position)
           .addScaledVector(camForward, 0.0110)
@@ -1333,12 +1353,14 @@ async function initApp() {
     }
 
     if (activeCameraMode === 1) {
-      // 1:150 N-Scale Low Chase Cam (0.38x kart scale, slightly less zoomed in at 15.4mm behind, 7.4mm above,
-      // looking 24mm ahead and 3.0mm up with 41.5° FOV)
+      // Close, Low Arcade Action Chase Cam (Beach Buggy / Kart style):
+      // Positioned right behind the rear spoiler (-9.5mm behind, 4.4mm above) with a 55°–62° dynamic FOV
+      // and tight lateral/yaw follow so the player feels 100% in the driver's seat!
+      const boostPullback = st.boostActive > 0 ? -0.0008 : 0.0;
       _camDesiredPos
         .copy(st.position)
-        .addScaledVector(camForward, -0.0154)
-        .addScaledVector(st.normal, 0.0074 + st.hopHeight * 0.38);
+        .addScaledVector(camForward, -0.0095 + boostPullback)
+        .addScaledVector(st.normal, 0.0044 + st.hopHeight * 0.35);
       if (shakeRight !== 0.0 || shakeUp !== 0.0) {
         _camDesiredPos
           .addScaledVector(st.right, shakeRight)
@@ -1347,18 +1369,25 @@ async function initApp() {
 
       _camDesiredLook
         .copy(st.position)
-        .addScaledVector(camForward, 0.024)
-        .addScaledVector(st.normal, 0.0030 + st.hopHeight * 0.22);
+        .addScaledVector(camForward, 0.0135)
+        .addScaledVector(st.normal, 0.0022 + st.hopHeight * 0.20);
 
-      const smoothUp = isScreenshotMode ? 1.0 : 1.0 - Math.exp(-dt * 16.0);
+      // Dynamic FOV punch during Nitro / Turbo Boost
+      const targetArcadeFov = st.boostActive > 0 ? 61.5 : 55.0 + Math.min(3.0, Math.abs(st.speed) * 10.0);
+      if (Math.abs(camera.fov - targetArcadeFov) > 0.15) {
+        camera.fov = THREE.MathUtils.lerp(camera.fov, targetArcadeFov, 1.0 - Math.exp(-dt * 10.0));
+        camera.updateProjectionMatrix();
+      }
+
+      const smoothUp = isScreenshotMode ? 1.0 : 1.0 - Math.exp(-dt * 20.0);
       _camBlendedUp
-        .set(0, 0.58, 0)
-        .addScaledVector(st.normal, 0.42)
+        .set(0, 0.52, 0)
+        .addScaledVector(st.normal, 0.48)
         .normalize();
       camCurrentUp.lerp(_camBlendedUp, smoothUp).normalize();
 
-      const smoothPos = isScreenshotMode ? 1.0 : 1.0 - Math.exp(-dt * 14.0);
-      const smoothLook = isScreenshotMode ? 1.0 : 1.0 - Math.exp(-dt * 16.0);
+      const smoothPos = isScreenshotMode ? 1.0 : 1.0 - Math.exp(-dt * 28.0);
+      const smoothLook = isScreenshotMode ? 1.0 : 1.0 - Math.exp(-dt * 32.0);
       camCurrentPos.lerp(_camDesiredPos, smoothPos);
       camCurrentLookAt.lerp(_camDesiredLook, smoothLook);
 
@@ -2087,12 +2116,16 @@ async function initApp() {
     if (isFinish) {
       const finalTotal =
         totalTime ?? physics.state.finishTotalTime ?? physics.state.totalRaceTime ?? lapTime;
+      const rank = rivalsController.getPlayerRank
+        ? rivalsController.getPlayerRank(physics.state)
+        : 1;
       showFinishOverlay(finalTotal, bestLap ?? lapTime, true);
       for (const cb of raceFinishListeners) {
         cb({
           totalTime: finalTotal,
           bestLap: bestLap ?? lapTime,
           lapTimes: physics.state.lapTimes.slice(),
+          finishRank: rank,
         });
       }
     } else {
@@ -2101,19 +2134,6 @@ async function initApp() {
       showLapSplit(lapNum, lapTime);
     }
   });
-
-  if (physics.onRaceFinish) {
-    physics.onRaceFinish((totalTime, lapTimes, bestLap) => {
-      showFinishOverlay(totalTime, bestLap, true);
-      for (const cb of raceFinishListeners) {
-        cb({
-          totalTime,
-          bestLap,
-          lapTimes: lapTimes || physics.state.lapTimes.slice(),
-        });
-      }
-    });
-  }
 
   physics.onModeChange((isAuto) => {
     syncAutopilotUI(isAuto);
@@ -2474,16 +2494,26 @@ async function initApp() {
       const on = audioSynth.setEnabled(true);
       updateAudioButtonUI(on);
     }
-    if (!isCircuitReady) {
-      warmUpSceneOnGpu();
-      isCircuitReady = true;
-      updateWelcomeWarmupUI();
-    }
+    isCircuitReady = true;
     pendingRaceStartAfterWarmup = false;
     hideWelcomeDialog();
     hideFinishOverlay();
     hideLapSplit();
+    if (powerupManager) powerupManager.reset();
+    if (rivalsController) rivalsController.reset();
     startF1StartCountdown();
+    // Snap camera immediately behind the car on the starting grid so there is zero swoop lag
+    const st = physics.state;
+    camCurrentPos
+      .copy(st.position)
+      .addScaledVector(st.tangent, -0.0095)
+      .addScaledVector(st.normal, 0.0044);
+    camCurrentLookAt
+      .copy(st.position)
+      .addScaledVector(st.tangent, 0.0135)
+      .addScaledVector(st.normal, 0.0022);
+    camera.position.copy(camCurrentPos);
+    camera.lookAt(camCurrentLookAt);
   }
 
   if (btnWelcomeStart) {
@@ -2862,6 +2892,16 @@ async function initApp() {
       }
       return false;
     },
+    triggerPowerup() {
+      if (powerupManager && rivalsController) {
+        return powerupManager.triggerPlayerPowerup(
+          physics.state,
+          rivalsController.rivals,
+          audioSynth
+        );
+      }
+      return false;
+    },
     setCameraMode(mode) {
       setCameraMode(mode);
     },
@@ -2937,6 +2977,7 @@ async function initApp() {
           totalTime: total,
           bestLap: l3,
           lapTimes: [l1, l2, l3],
+          finishRank: 1,
         });
       }
     },
@@ -2949,6 +2990,11 @@ async function initApp() {
       return () => raceFinishListeners.delete(cb);
     },
   };
+
+  let lastTelemetryEmitMs = 0;
+  let lastEmittedCountdownStep = -1;
+  let lastEmittedPowerup = null;
+  let lastEmittedLap = -1;
 
   function animate() {
     const dt = isScreenshotMode ? 1 / 60 : Math.min(clock.getDelta(), 0.05);
@@ -2964,6 +3010,9 @@ async function initApp() {
 
     if (isShowroomActive) {
       showroomGroup.visible = true;
+      if (powerupManager && powerupManager.rootGroup) powerupManager.rootGroup.visible = false;
+      if (rivalsController && rivalsController.rootGroup) rivalsController.rootGroup.visible = false;
+
       turntableAngle += dt * 0.62;
       showroomPlatform.rotation.y = turntableAngle;
 
@@ -2986,6 +3035,10 @@ async function initApp() {
 
       // Frame the rotating car & turntable cleanly in the center of the viewport
       orbitControls.enabled = false;
+      if (Math.abs(camera.fov - 46.0) > 0.2) {
+        camera.fov = 46.0;
+        camera.updateProjectionMatrix();
+      }
       if (currentAppScreen === 'GARAGE') {
         _showroomCamTarget.set(0.0, 0.0968, 0.246);
         _showroomLookTarget.set(0.0, 0.0906, 0.220);
@@ -3021,6 +3074,8 @@ async function initApp() {
       }
     } else {
       showroomGroup.visible = false;
+      if (powerupManager && powerupManager.rootGroup) powerupManager.rootGroup.visible = true;
+      if (rivalsController && rivalsController.rootGroup) rivalsController.rootGroup.visible = true;
       if (microKart.sparkPoints) {
         microKart.sparkPoints.visible = true;
       }
@@ -3028,10 +3083,14 @@ async function initApp() {
       // 0. Step Formula 1 5-Light Start Countdown if active
       stepF1StartCountdown(isScreenshotMode ? 0.0 : dt);
 
-      // 1. Step 60FPS Rapier3D + Banked Coaster Spline Physics
+      // 1. Step 60FPS Banked Coaster Spline Physics
       const st = physics.stepPhysics(dt);
 
-      // 2. Sync 1:87 Micro-Kart Transform, Wheels, Helmeted Driver & Drift Sparks
+      // 1B. Step 3 AI rivals and Mystery Box Combat System
+      const currentRank = rivalsController.update(dt, st, powerupManager, audioSynth);
+      powerupManager.update(dt, st, rivalsController.rivals, audioSynth, currentRank);
+
+      // 2. Sync Micro-Kart Transform, Wheels, Helmeted Driver & Drift Sparks
       microKart.kartRoot.position.copy(st.position);
       microKart.kartRoot.quaternion.copy(st.quaternion);
       microKart.updateWheels(dt, st.speed, st.steerAngle);
@@ -3080,7 +3139,7 @@ async function initApp() {
           : 0.0032 * activeDofScale;
       }
 
-      // Render 3D sparks directly when BokehPass is disabled
+      // Update 3D spark uniforms when BokehPass is disabled
       if (!bokehPass.enabled && microKart && microKart.sparkPoints && microKart.sparkPoints.visible) {
         const sMat = microKart.sparkPoints.material;
         if (sMat && sMat.uniforms) {
@@ -3098,28 +3157,50 @@ async function initApp() {
       audioSynth.update(st);
       updateHUD(st);
 
+      // Emit telemetry to React HUD at ~13Hz (every 75ms) or immediately when discrete state changes
       if (telemetryListeners.size > 0) {
-        const absSpeed = Math.abs(st.speed);
-        const speedKmh = Math.round(absSpeed * 102.35 * 3.6);
+        const nowMs = performance.now();
         const countdownStep = f1CountdownState.active
           ? Math.max(1, 6 - (Math.floor(f1CountdownState.elapsed / f1CountdownState.stepDuration) + 1))
           : 0;
-        const payload = {
-          speedKmh,
-          lapCount: Math.min(3, Math.max(1, st.lapCount || 1)),
-          currentLapTime: st.currentLapTime || 0,
-          totalRaceTime: st.totalRaceTime || 0,
-          bestLapTime: st.bestLapTime,
-          boostCharge: st.boostCharge ?? 1.0,
-          boostActive: st.boostActive ?? 0.0,
-          isDrifting: Boolean(st.isDrifting),
-          countdownStep,
-          cameraMode: activeCameraMode,
-          autopilot: Boolean(st.autopilot),
-          audioEnabled: audioSynth.isEnabled ? audioSynth.isEnabled() : false,
-        };
-        for (const cb of telemetryListeners) {
-          cb(payload);
+        const heldPowerup = powerupManager.getHeldPowerup();
+        const lapNow = Math.min(3, Math.max(1, st.lapCount || 1));
+
+        if (
+          nowMs - lastTelemetryEmitMs >= 75 ||
+          countdownStep !== lastEmittedCountdownStep ||
+          heldPowerup !== lastEmittedPowerup ||
+          lapNow !== lastEmittedLap
+        ) {
+          lastTelemetryEmitMs = nowMs;
+          lastEmittedCountdownStep = countdownStep;
+          lastEmittedPowerup = heldPowerup;
+          lastEmittedLap = lapNow;
+
+          const absSpeed = Math.abs(st.speed);
+          const speedKmh = Math.round(absSpeed * 102.35 * 3.6);
+          const payload = {
+            speedKmh,
+            lapCount: lapNow,
+            currentLapTime: st.currentLapTime || 0,
+            totalRaceTime: st.totalRaceTime || 0,
+            bestLapTime: st.bestLapTime,
+            boostCharge: st.boostCharge ?? 1.0,
+            boostActive: st.boostActive ?? 0.0,
+            isDrifting: Boolean(st.isDrifting),
+            countdownStep,
+            cameraMode: activeCameraMode,
+            autopilot: Boolean(st.autopilot),
+            audioEnabled: audioSynth.isEnabled ? audioSynth.isEnabled() : false,
+            positionRank: currentRank,
+            rivals: rivalsController.getRivalsData(),
+            heldPowerup,
+            shieldActive: powerupManager.isShieldActive(),
+            spinoutActive: powerupManager.isSpinoutActive(),
+          };
+          for (const cb of telemetryListeners) {
+            cb(payload);
+          }
         }
       }
     }
@@ -3177,10 +3258,24 @@ async function initApp() {
       return;
     }
 
-    // 6. Render with ACES Filmic Tone Mapping + Zero-Geometry-Pass BokehPass + UnrealBloomPass
+    // 6. Fast Single-Pass Direct WebGL Rendering for 60 FPS Mobile Performance
+    // (Falls back to EffectComposer only if user explicitly enabled high DOF or Bloom in Settings)
     renderer.info.autoReset = false;
     renderer.info.reset();
-    composer.render();
+    const usePostComposer = bokehPass.enabled || (settings.bloomStrength ?? 0) > 0.12;
+    if (usePostComposer) {
+      composer.render();
+    } else {
+      renderer.setRenderTarget(null);
+      renderer.autoClear = true;
+      renderer.render(scene, camera);
+      if (!isShowroomActive && microKart && microKart.sparkPoints && microKart.sparkPoints.visible) {
+        const prevAutoClear = renderer.autoClear;
+        renderer.autoClear = false;
+        renderer.render(sparkScene, camera);
+        renderer.autoClear = prevAutoClear;
+      }
+    }
     window.__deskRacerStats = {
       calls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,

@@ -112,6 +112,11 @@ export default function App() {
     cameraMode: 1,
     autopilot: false,
     audioEnabled: false,
+    positionRank: 1,
+    rivals: [],
+    heldPowerup: null,
+    shieldActive: false,
+    spinoutActive: false,
   });
 
   // Last Completed Race Result
@@ -120,6 +125,7 @@ export default function App() {
     bestLap: 16.82,
     lapTimes: [18.12, 17.51, 16.82],
     coinsEarned: 250,
+    finishRank: 1,
   });
 
   // Persist coins
@@ -194,10 +200,11 @@ export default function App() {
       });
 
       unsubscribeFinish = engine.onRaceFinish((finishData) => {
-        const baseReward = 150;
+        const rank = finishData.finishRank || 1;
+        const rankReward = rank === 1 ? 300 : rank === 2 ? 200 : rank === 3 ? 120 : 60;
         const speedBonus =
-          finishData.totalTime < 55 ? 100 : finishData.totalTime < 70 ? 50 : 25;
-        const totalReward = baseReward + speedBonus;
+          finishData.totalTime < 55 ? 50 : finishData.totalTime < 70 ? 25 : 10;
+        const totalReward = rankReward + speedBonus;
 
         setCoins((prev) => prev + totalReward);
         setRaceResult({
@@ -205,6 +212,7 @@ export default function App() {
           bestLap: finishData.bestLap,
           lapTimes: finishData.lapTimes,
           coinsEarned: totalReward,
+          finishRank: rank,
         });
         setGameState('GAMEOVER');
       });

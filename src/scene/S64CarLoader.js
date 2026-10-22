@@ -42,23 +42,13 @@ const WHEEL_SLOTS = [
   { name: 'RR', x: -99.5, y: 24.0, z: 58.0, side: 'R', isFront: false },
 ];
 
-function attachReadabilityRimShader(mat, cacheKey, minFloorStrength, topFillStrength, rimStrength) {
-  mat.customProgramCacheKey = () => cacheKey;
-  mat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <dithering_fragment>',
-      `
-      vec3 kViewDir = normalize( vViewPosition );
-      float kNdotV = clamp( abs( dot( normal, kViewDir ) ), 0.0, 1.0 );
-      float kGrazing = pow( 1.0 - kNdotV, 2.15 );
-      float kTopFill = clamp( normal.y * 0.65 + normal.z * 0.35, 0.0, 1.0 );
-      vec3 minFloorRgb = diffuseColor.rgb * (${minFloorStrength.toFixed(3)} + ${topFillStrength.toFixed(3)} * kTopFill);
-      vec3 rimHighlightRgb = mix(diffuseColor.rgb, vec3(1.0, 0.97, 0.92), 0.48) * (kGrazing * ${rimStrength.toFixed(3)});
-      gl_FragColor.rgb = max(gl_FragColor.rgb, minFloorRgb) + rimHighlightRgb * (0.45 + 0.55 * kTopFill);
-      #include <dithering_fragment>
-      `
-    );
-  };
+function attachReadabilityRimShader(mat, _cacheKey, minFloorStrength, _topFillStrength, _rimStrength) {
+  // Use standard PBR emissive self-illumination instead of custom onBeforeCompile shader strings
+  // so Three.js shares a single compiled shader program across all meshes with zero GPU compile freeze!
+  if (mat && mat.color && (!mat.emissive || mat.emissiveIntensity === 0)) {
+    mat.emissive = mat.color.clone().multiplyScalar(minFloorStrength * 0.45);
+    mat.emissiveIntensity = 1.0;
+  }
 }
 
 function upgradeBodyMaterials(fbxObj, kitId) {

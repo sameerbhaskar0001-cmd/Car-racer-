@@ -52,8 +52,8 @@ export function getTrackAsphaltV4Textures() {
     return cachedV4TrackTextures;
   }
 
-  const w = 512;
-  const h = 512;
+  const w = 128;
+  const h = 128;
 
   // 1. 100% Isotropic Crushed-Basalt Pebble Albedo
   const albedoCanvas = document.createElement('canvas');
@@ -95,10 +95,10 @@ export function getTrackAsphaltV4Textures() {
     const fy = sy - iy;
     const ux = fx * fx * (3.0 - 2.0 * fx);
     const uy = fy * fy * (3.0 - 2.0 * fy);
-    const x0 = ix & 511;
-    const x1 = (ix + 1) & 511;
-    const y0 = iy & 511;
-    const y1 = (iy + 1) & 511;
+    const x0 = ix & 127;
+    const x1 = (ix + 1) & 127;
+    const y0 = iy & 127;
+    const y1 = (iy + 1) & 127;
     const c00 = hash2i(x0, y0);
     const c10 = hash2i(x1, y0);
     const c01 = hash2i(x0, y1);

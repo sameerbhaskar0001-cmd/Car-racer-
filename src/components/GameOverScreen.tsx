@@ -18,36 +18,54 @@ export const GameOverScreen: React.FC<GameOverScreenProps> = ({
   onOpenGarage,
   onMainMenu,
 }) => {
+  const rank = result.finishRank || 1;
+  const rankMeta = [
+    { title: '1ST PLACE · GOLD CHAMPION', badge: '🥇 1ST', color: 'from-amber-400 to-yellow-300', text: 'text-amber-300', border: 'border-amber-400', glow: 'rgba(251, 191, 36, 0.4)' },
+    { title: '2ND PLACE · SILVER PODIUM', badge: '🥈 2ND', color: 'from-slate-200 to-cyan-300', text: 'text-cyan-200', border: 'border-cyan-400', glow: 'rgba(56, 189, 248, 0.3)' },
+    { title: '3RD PLACE · BRONZE PODIUM', badge: '🥉 3RD', color: 'from-amber-600 to-orange-400', text: 'text-orange-300', border: 'border-amber-600', glow: 'rgba(217, 119, 6, 0.3)' },
+    { title: '4TH PLACE · RACER FINISHER', badge: '🏁 4TH', color: 'from-slate-400 to-slate-200', text: 'text-slate-300', border: 'border-slate-500', glow: 'rgba(148, 163, 184, 0.2)' },
+  ][Math.min(3, Math.max(0, rank - 1))];
+
   return (
     <div
       className="fixed inset-0 z-50 pointer-events-auto flex items-center justify-center px-5 py-4 select-none"
       style={{
         background:
-          'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(6, 12, 26, 0.84) 0%, rgba(2, 4, 10, 0.95) 100%)',
+          'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(6, 12, 26, 0.88) 0%, rgba(2, 4, 10, 0.98) 100%)',
       }}
     >
-      <div className="w-full max-w-xl bg-slate-950/95 border-2 border-cyan-400/65 rounded-2xl p-5 sm:p-7 shadow-2xl text-center relative overflow-hidden">
+      <div
+        className="w-full max-w-xl bg-slate-950/95 border-2 rounded-2xl p-5 sm:p-7 shadow-2xl text-center relative overflow-hidden"
+        style={{ borderColor: rank === 1 ? '#f59e0b' : '#38bdf8', boxShadow: `0 0 35px ${rankMeta.glow}` }}
+      >
         <div
-          className="absolute top-0 left-0 right-0 h-1"
+          className="absolute top-0 left-0 right-0 h-1.5"
           style={{
             background:
-              'linear-gradient(90deg, #ffaa44 0%, #ffffff 50%, #00f0ff 100%)',
+              rank === 1
+                ? 'linear-gradient(90deg, #ffaa00 0%, #fff 50%, #ffaa00 100%)'
+                : 'linear-gradient(90deg, #38bdf8 0%, #fff 50%, #00f0ff 100%)',
           }}
         />
 
-        <div className="inline-block px-3 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 font-['Orbitron'] font-bold text-[10px] tracking-[0.2em] uppercase">
-          3 LAPS FINISHED
+        {/* Podium Finish Badge */}
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900 border ${rankMeta.border} font-['Orbitron'] font-black text-xs sm:text-sm tracking-wider uppercase ${rankMeta.text}`}>
+            <span>{rankMeta.badge}</span>
+            <span className="text-white/60">|</span>
+            <span>{rankMeta.title}</span>
+          </div>
         </div>
 
         <h1
-          className="font-['Orbitron'] italic font-black text-2xl sm:text-4xl uppercase tracking-wider mt-1.5"
+          className="font-['Orbitron'] italic font-black text-2xl sm:text-4xl uppercase tracking-wider mt-1"
           style={{
-            background: 'linear-gradient(95deg, #ffffff 0%, #ffe3a8 55%, #ffaa44 100%)',
+            background: rank === 1 ? 'linear-gradient(95deg, #ffffff 0%, #ffe3a8 55%, #ffaa44 100%)' : 'linear-gradient(95deg, #ffffff 0%, #93c5fd 55%, #38bdf8 100%)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
           }}
         >
-          RACE COMPLETE
+          {rank === 1 ? 'VICTORY!' : 'RACE COMPLETE'}
         </h1>
 
         {/* Total Time & Best Lap Readout */}

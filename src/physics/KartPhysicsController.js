@@ -1,64 +1,11 @@
 import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
 
 /**
- * Initializes the @dimforge/rapier3d-compat 3D Physics World with colliders for the
- * oak desk, 8 monuments, and 720-sample coaster trimesh, paired with a 60FPS
- * Spline-Assisted Banked Coaster Surface & Raycast Vehicle Controller.
+ * 60FPS Spline-Assisted Banked Coaster Surface & Vehicle Controller.
+ * Avoids heavy WASM trimesh construction at startup for zero-lag mobile loading.
  */
-export async function createKartPhysicsController(splineData, manifest, roadGeo) {
-  await RAPIER.init();
-
-  const gravity = { x: 0.0, y: -9.81, z: 0.0 };
-  const world = new RAPIER.World(gravity);
-
-  // 1. Static Oak Desk Collider (1100 x 25 x 600 mm, top at Y=0)
-  const deskBodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0.0, -0.0125, 0.0);
-  const deskBody = world.createRigidBody(deskBodyDesc);
-  world.createCollider(RAPIER.ColliderDesc.cuboid(0.55, 0.0125, 0.3), deskBody);
-
-  // 2. Static Colliders for the Desk Monuments
-  if (manifest && Array.isArray(manifest.desk_objects)) {
-    for (const obj of manifest.desk_objects) {
-      if (obj.id === 'oak_desk_tabletop') continue;
-      const c = obj.center_xyz || obj.base_xyz || obj.mat_center_xyz || [0, 0, 0];
-      const d =
-        obj.dimensions_wdh ||
-        obj.panel_dimensions_wdh ||
-        obj.head_dimensions_wdh ||
-        obj.mat_dimensions_wdh || [0.06, 0.06, 0.06];
-      const bDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(
-        c[0],
-        c[1] + d[2] * 0.5,
-        c[2]
-      );
-      const body = world.createRigidBody(bDesc);
-      world.createCollider(
-        RAPIER.ColliderDesc.cuboid(d[0] * 0.5, d[2] * 0.5, d[1] * 0.5),
-        body
-      );
-    }
-  }
-
-  // 3. Coaster Roadbed Trimesh Collider inside Rapier World
-  if (roadGeo && roadGeo.attributes.position && roadGeo.index) {
-    const verts = new Float32Array(roadGeo.attributes.position.array);
-    const indices = new Uint32Array(roadGeo.index.array);
-    const trackBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    world.createCollider(RAPIER.ColliderDesc.trimesh(verts, indices), trackBody);
-  }
-
-  // 4. Kinematic Position-Based RigidBody for the 1:87 Micro-Kart (18mm x 12mm x 8mm)
-  const kartBodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(
-    0.0,
-    0.036,
-    0.255
-  );
-  const kartBody = world.createRigidBody(kartBodyDesc);
-  world.createCollider(
-    RAPIER.ColliderDesc.cuboid(0.006, 0.004, 0.009).setRestitution(0.4),
-    kartBody
-  );
+export async function createKartPhysicsController(splineData, _manifest, _roadGeo) {
+  const world = null;
 
   // -------------------------------------------------------------------------
   // PRECOMPUTE PERIODIC SPLINE TABLE & SECTOR START ARC-LENGTHS
@@ -304,6 +251,7 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
     launchWindowTimer: 0.0,
     lapCount: 1,
     lapDistanceTraveled: 0.0,
+    totalDistanceTraveled: 0.0,
     currentLapTime: 0.0,
     totalRaceTime: 0.0,
     lapTimes: [],
@@ -458,6 +406,7 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
     state.currentLapTime = 0.0;
     state.lapCount = 1;
     state.lapDistanceTraveled = 0.0;
+    state.totalDistanceTraveled = 0.0;
     state.lapTimes = [];
     state.finishTotalTime = null;
     state.raceClockActive = false;
@@ -857,8 +806,9 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
 
       targetYaw = THREE.MathUtils.clamp(targetYaw, -0.34, 0.34);
 
-      // Fast yaw response when steering or releasing keys so the kart never slingshots across the track
-      const yawResponseRate = turnRight !== 0 ? 11.5 : 10.5;
+      // Fast yaw response when steering or releasing keys so the kart feels tightly connected to player input
+      const handlingBoost = state.handlingMultiplier || 1.0;
+      const yawResponseRate = (turnRight !== 0 ? 15.5 : 13.0) * handlingBoost;
       const nextYaw = THREE.MathUtils.lerp(
         prevYaw,
         targetYaw,
@@ -939,14 +889,17 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
       }
     }
 
-    // 2. Pure Nose-Driven Lateral Velocity (zero sideways magnet pull)
+    // 2. Direct Nose + Responsive Lateral Steering Velocity
     let lateralDot = 0.0;
     if (isAiCruise) {
       lateralDot =
         state.speed * (-Math.sin(state.headingYaw)) +
         turnRight * 0.024 * (0.35 + 0.65 * Math.min(1.0, Math.abs(state.speed) / 0.10));
     } else {
-      lateralDot = state.speed * (-Math.sin(state.headingYaw)) * 0.82;
+      const handlingBoost = state.handlingMultiplier || 1.0;
+      lateralDot =
+        state.speed * (-Math.sin(state.headingYaw)) * 0.92 * handlingBoost +
+        state.steerSmooth * state.speed * 0.09 * handlingBoost;
     }
     state.lateralVel = lateralDot;
     state.lateralOffset += lateralDot * clampedDt;
@@ -1058,6 +1011,7 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
       state.totalRaceTime = 0.0;
       state.lapCount = 1;
       state.lapDistanceTraveled = 0.0;
+      state.totalDistanceTraveled = 0.0;
     } else if (!state.victoryCruise && !state.raceFinished) {
       if (state.currentLapTime > 0 && state.totalRaceTime < state.currentLapTime) {
         state.totalRaceTime = state.currentLapTime;
@@ -1069,6 +1023,7 @@ export async function createKartPhysicsController(splineData, manifest, roadGeo)
         state.currentLapTime += clampedDt;
         state.totalRaceTime += clampedDt;
         state.lapDistanceTraveled = Math.max(0.0, (state.lapDistanceTraveled || 0.0) + ds);
+        state.totalDistanceTraveled = Math.max(0.0, (state.totalDistanceTraveled || 0.0) + ds);
       }
 
       // Reliable finish-line crossing detection:

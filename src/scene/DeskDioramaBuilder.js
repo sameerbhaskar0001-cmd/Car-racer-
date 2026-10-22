@@ -76,9 +76,9 @@ function getDeskV4PBRTextures(upgradeExternal = false) {
     return cachedDeskV4Textures;
   }
 
-  // 1. Oak Wood Tangent-Space Normal & Roughness (512x256 procedural fallback -> 2K PNG upgrade)
-  const ow = 512;
-  const oh = 256;
+  // 1. Oak Wood Tangent-Space Normal & Roughness (128x128 fast procedural texture)
+  const ow = 128;
+  const oh = 128;
   const oakNormCanvas = document.createElement('canvas');
   oakNormCanvas.width = ow;
   oakNormCanvas.height = oh;
@@ -123,21 +123,21 @@ function getDeskV4PBRTextures(upgradeExternal = false) {
   oakWoodAlbedoTex.colorSpace = THREE.SRGBColorSpace;
   oakWoodAlbedoTex.wrapS = THREE.RepeatWrapping;
   oakWoodAlbedoTex.wrapT = THREE.RepeatWrapping;
-  oakWoodAlbedoTex.anisotropy = 16;
+  oakWoodAlbedoTex.anisotropy = 4;
 
   const oakWoodNormalTex = new THREE.CanvasTexture(oakNormCanvas);
   oakWoodNormalTex.wrapS = THREE.RepeatWrapping;
   oakWoodNormalTex.wrapT = THREE.RepeatWrapping;
-  oakWoodNormalTex.anisotropy = 16;
+  oakWoodNormalTex.anisotropy = 4;
 
   const oakWoodRoughnessTex = new THREE.CanvasTexture(oakRoughCanvas);
   oakWoodRoughnessTex.wrapS = THREE.RepeatWrapping;
   oakWoodRoughnessTex.wrapT = THREE.RepeatWrapping;
-  oakWoodRoughnessTex.anisotropy = 16;
+  oakWoodRoughnessTex.anisotropy = 4;
 
-  // 2. Open-Cell Acoustic Microphone Foam Albedo, Cellular Normal & Roughness (512x512 -> 2K PNG upgrade)
-  const fw = 512;
-  const fh = 512;
+  // 2. Open-Cell Acoustic Microphone Foam Albedo, Cellular Normal & Roughness (128x128 fast procedural texture)
+  const fw = 128;
+  const fh = 128;
   const foamAlbedoCanvas = document.createElement('canvas');
   foamAlbedoCanvas.width = fw;
   foamAlbedoCanvas.height = fh;

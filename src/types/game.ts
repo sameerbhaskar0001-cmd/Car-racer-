@@ -130,6 +130,22 @@ export const BODY_KITS: BodyKitSpec[] = [
   },
 ];
 
+export type PowerupType =
+  | 'ROCKET'
+  | 'SHIELD'
+  | 'OIL_SLICK'
+  | 'HYPER_NITRO'
+  | 'EMP';
+
+export interface RivalRacerData {
+  id: string;
+  name: string;
+  color: string;
+  rank: number;
+  speedKmh: number;
+  position: [number, number, number];
+}
+
 export interface RaceTelemetry {
   speedKmh: number;
   lapCount: number;
@@ -143,6 +159,11 @@ export interface RaceTelemetry {
   cameraMode: number;
   autopilot: boolean;
   audioEnabled: boolean;
+  positionRank: number; // 1st, 2nd, 3rd, 4th
+  rivals: RivalRacerData[];
+  heldPowerup: PowerupType | null;
+  shieldActive: boolean;
+  spinoutActive: boolean;
 }
 
 export interface RaceFinishResult {
@@ -150,6 +171,7 @@ export interface RaceFinishResult {
   bestLap: number;
   lapTimes: number[];
   coinsEarned: number;
+  finishRank: number; // 1, 2, 3, or 4
 }
 
 export interface TheRaceEngineBridge {
@@ -179,6 +201,7 @@ export interface TheRaceEngineBridge {
   ) => void;
   clearTouchControls: () => void;
   triggerNitro: () => boolean;
+  triggerPowerup: () => boolean;
   setCameraMode: (mode: number) => void;
   getCameraMode: () => number;
   setAutopilot: (val: boolean) => void;
@@ -200,7 +223,12 @@ export interface TheRaceEngineBridge {
   completeRaceDemo: () => void;
   onTelemetry: (cb: (data: RaceTelemetry) => void) => () => void;
   onRaceFinish: (
-    cb: (res: { totalTime: number; bestLap: number; lapTimes: number[] }) => void
+    cb: (res: {
+      totalTime: number;
+      bestLap: number;
+      lapTimes: number[];
+      finishRank: number;
+    }) => void
   ) => () => void;
 }
 
